@@ -1,9 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
-import VadrModule2 from "./vadr-module2";
 import DrDashboard from "./DrDashboard";
-import LoginPage from "./LoginPage";
-import RegisterPage from "./RegisterPage";
+import LoginPage from "./modules/p1-mid/auth/pages/LoginPage";
+import RegisterPage from "./modules/p1-mid/auth/pages/RegisterPage";
+import PatientUserManagementPage from "./modules/p1-mid/patient-user-management/pages/PatientUserManagementPage";
 
 function Protected({ children }) {
   const token = localStorage.getItem("vadr_token");
@@ -29,7 +29,7 @@ function App() {
           path="/"
           element={
             <Protected>
-              <VadrModule2 />
+              <PatientUserManagementPage />
             </Protected>
           }
         />
