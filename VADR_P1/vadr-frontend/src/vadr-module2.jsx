@@ -496,7 +496,10 @@ function PatientsTab({ showToast }) {
     setDeletingId(p.patientId);
     try {
       await patientAPI.delete(p.patientId);
-      setPatients(prev => prev.filter(x => x.patientId !== p.patientId));
+      // If patientId got duplicated (can happen with legacy IDs), deleting one should only remove one row.
+      setPatients(prev =>
+        prev.filter(x => (p._id ? x._id !== p._id : x.patientId !== p.patientId))
+      );
       if (selected?.patientId === p.patientId) {
         setSelected(null);
         setModal(null);
@@ -627,6 +630,23 @@ function PatientsTab({ showToast }) {
                       <Btn size="sm" variant="ghost" icon="eye"     onClick={() => openView(p)} />
                       <Btn size="sm" variant="ghost" icon="edit"    onClick={() => openEdit(p)} />
                       <Btn size="sm" variant="ghost" icon="history" onClick={() => openHistory(p)} />
+                      <Link
+                        to={`/medical-history/${p.patientId}`}
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#1a56db",
+                          textDecoration: "none",
+                          border: "1px solid #bfdbfe",
+                          background: "#eff6ff",
+                          borderRadius: 8,
+                          padding: "4px 10px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                        }}
+                      >
+                        Medical History
+                      </Link>
                       <Btn size="sm" variant="teal"  icon="key"     onClick={() => openCreds(p)}>Creds</Btn>
                       <Btn size="sm" variant={p.status === "active" ? "danger" : "success"} onClick={() => toggleStatus(p.patientId)} disabled={deletingId === p.patientId}>
                         {p.status === "active" ? "Deactivate" : "Activate"}

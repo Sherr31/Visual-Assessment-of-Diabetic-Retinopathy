@@ -47,6 +47,12 @@ export const patientAPI = {
   delete: (patientId) => request("DELETE", `/patients/${patientId}`),
 };
 
+export const medicalHistoryAPI = {
+  get: (patientId) => request("GET", `/patients/${patientId}/medical-history`),
+  update: (patientId, data) => request("PUT", `/patients/${patientId}/medical-history`, data),
+  export: (patientId) => request("GET", `/patients/${patientId}/medical-history/export`),
+};
+
 // ══════════════════════════════════════════════════════════════════════════════
 // USER / STAFF APIs
 // ══════════════════════════════════════════════════════════════════════════════
