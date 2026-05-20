@@ -4,6 +4,7 @@ import DrDashboard from "./DrDashboard";
 import LoginPage from "./modules/p1-mid/auth/pages/LoginPage";
 import RegisterPage from "./modules/p1-mid/auth/pages/RegisterPage";
 import PatientUserManagementPage from "./modules/p1-mid/patient-user-management/pages/PatientUserManagementPage";
+import MedicalHistoryManagementPage from "./modules/p1-mid/medical-history-management/pages/MedicalHistoryManagementPage";
 
 function Protected({ children }) {
   const token = localStorage.getItem("vadr_token");
@@ -30,6 +31,14 @@ function App() {
           element={
             <Protected>
               <PatientUserManagementPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="/medical-history/:patientId"
+          element={
+            <Protected>
+              <MedicalHistoryManagementPage />
             </Protected>
           }
         />

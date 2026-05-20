@@ -39,6 +39,7 @@ db = client["vadr_db"]
 patients_col = db["patients"]
 users_col = db["users"]
 pending_reg_col = db["registration_pending"]
+medical_history_col = db["medical_history"]
 
 DEMO_STAFF_EMAILS = (
     "admin@vadr.pk",
@@ -206,8 +207,18 @@ def serialize(doc):
 
 
 def gen_patient_id():
-    count = patients_col.count_documents({})
-    return f"VADR-{str(count + 1).zfill(4)}"
+    # Generate monotonic IDs even if patients are deleted.
+    # Using count_documents() can reuse an old patientId after deletions.
+    max_num = 0
+    for doc in patients_col.find({}, {"patientId": 1}):
+        pid = doc.get("patientId")
+        if isinstance(pid, str) and pid.startswith("VADR-"):
+            try:
+                num = int(pid.split("VADR-")[-1])
+                max_num = max(max_num, num)
+            except ValueError:
+                pass
+    return f"VADR-{max_num + 1:04d}"
 
 
 def gen_password():
@@ -217,6 +228,27 @@ def gen_password():
 
 def today():
     return datetime.today().strftime("%Y-%m-%d")
+
+
+def _empty_medical_history(patient_id):
+    return {
+        "patientId": patient_id,
+        "visits": [],
+        "medications": [],
+        "comorbidities": [],
+        "scans": [],
+        "updatedAt": today(),
+    }
+
+
+def _grade_score(grade):
+    return {
+        "No DR": 0,
+        "Mild DR": 1,
+        "Moderate DR": 2,
+        "Severe DR": 3,
+        "Proliferative DR": 4,
+    }.get(grade, 0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -518,7 +550,79 @@ def delete_patient(patient_id):
     result = patients_col.delete_one({"patientId": patient_id})
     if result.deleted_count == 0:
         return jsonify({"error": "Patient not found"}), 404
+    medical_history_col.delete_one({"patientId": patient_id})
     return jsonify({"message": "Patient deleted", "patientId": patient_id}), 200
+
+
+@app.route("/api/patients/<patient_id>/medical-history", methods=["GET"])
+def get_medical_history(patient_id):
+    patient = patients_col.find_one({"patientId": patient_id})
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+    history = medical_history_col.find_one({"patientId": patient_id})
+    if not history:
+        medical_history_col.insert_one(_empty_medical_history(patient_id))
+        history = medical_history_col.find_one({"patientId": patient_id})
+    return jsonify(serialize(history)), 200
+
+
+@app.route("/api/patients/<patient_id>/medical-history", methods=["PUT"])
+def upsert_medical_history(patient_id):
+    patient = patients_col.find_one({"patientId": patient_id})
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+    data = request.get_json() or {}
+    payload = {
+        "visits": data.get("visits", []),
+        "medications": data.get("medications", []),
+        "comorbidities": data.get("comorbidities", []),
+        "scans": data.get("scans", []),
+        "updatedAt": today(),
+    }
+    medical_history_col.update_one(
+        {"patientId": patient_id},
+        {"$set": payload, "$setOnInsert": {"patientId": patient_id}},
+        upsert=True,
+    )
+    history = medical_history_col.find_one({"patientId": patient_id})
+    scans = history.get("scans", [])
+    last_scan = "—"
+    if scans:
+        last_scan = sorted(scans, key=lambda s: s.get("scanDate", ""), reverse=True)[0].get("scanDate", "—")
+    patients_col.update_one({"patientId": patient_id}, {"$set": {"scans": len(scans), "lastScan": last_scan}})
+    return jsonify(serialize(history)), 200
+
+
+@app.route("/api/patients/<patient_id>/medical-history/export", methods=["GET"])
+def export_medical_history(patient_id):
+    patient = patients_col.find_one({"patientId": patient_id})
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+    history = medical_history_col.find_one({"patientId": patient_id}) or _empty_medical_history(patient_id)
+    visits = sorted(history.get("visits", []), key=lambda v: v.get("visitDate", ""))
+    dr_trend = [
+        {
+            "visitDate": visit.get("visitDate"),
+            "grade": visit.get("drGrade", "No DR"),
+            "score": _grade_score(visit.get("drGrade", "No DR")),
+            "hba1c": visit.get("hba1c", ""),
+            "notes": visit.get("notes", ""),
+        }
+        for visit in visits
+    ]
+    return jsonify(
+        {
+            "patient": serialize(patient),
+            "history": {
+                "visits": visits,
+                "medications": history.get("medications", []),
+                "comorbidities": history.get("comorbidities", []),
+                "scans": history.get("scans", []),
+                "drTrend": dr_trend,
+                "updatedAt": history.get("updatedAt", today()),
+            },
+        }
+    ), 200
 
 
 # ══════════════════════════════════════════════════════════════════════════════
