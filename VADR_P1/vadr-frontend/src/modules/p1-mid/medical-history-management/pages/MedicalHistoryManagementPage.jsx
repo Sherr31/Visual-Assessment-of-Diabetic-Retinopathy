@@ -20,6 +20,8 @@ const inputStyle = {
   background: "#fff",
   width: "100%",
   fontFamily: "inherit",
+  boxSizing: "border-box",
+  minWidth: 0,
 };
 
 const cardStyle = {
@@ -363,14 +365,26 @@ export default function MedicalHistoryManagementPage() {
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
         <div style={cardStyle}>
           <h3 style={{ marginTop: 0 }}>Visit Timeline</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr auto", gap: 8 }}>
-            <input type="date" value={draftVisit.visitDate} onChange={(e) => setDraftVisit((s) => ({ ...s, visitDate: e.target.value }))} style={inputStyle} />
-            <select value={draftVisit.drGrade} onChange={(e) => setDraftVisit((s) => ({ ...s, drGrade: e.target.value }))} style={inputStyle}>
-              {Object.keys(gradeToScore).map((g) => <option key={g}>{g}</option>)}
-            </select>
-            <input placeholder="HbA1c" value={draftVisit.hba1c} onChange={(e) => setDraftVisit((s) => ({ ...s, hba1c: e.target.value }))} style={inputStyle} />
-            <input placeholder="Notes" value={draftVisit.notes} onChange={(e) => setDraftVisit((s) => ({ ...s, notes: e.target.value }))} style={inputStyle} />
-            <button onClick={addVisit} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer" }}>Add</button>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 1fr) minmax(150px, 1.2fr) minmax(80px, 0.8fr) minmax(120px, 2fr) auto", gap: 8, alignItems: "end" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Date</div>
+              <input type="date" value={draftVisit.visitDate} onChange={(e) => setDraftVisit((s) => ({ ...s, visitDate: e.target.value }))} style={inputStyle} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>DR Grade</div>
+              <select value={draftVisit.drGrade} onChange={(e) => setDraftVisit((s) => ({ ...s, drGrade: e.target.value }))} style={inputStyle}>
+                {Object.keys(gradeToScore).map((g) => <option key={g}>{g}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>HbA1c</div>
+              <input placeholder="HbA1c" value={draftVisit.hba1c} onChange={(e) => setDraftVisit((s) => ({ ...s, hba1c: e.target.value }))} style={inputStyle} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Notes</div>
+              <input placeholder="Notes" value={draftVisit.notes} onChange={(e) => setDraftVisit((s) => ({ ...s, notes: e.target.value }))} style={inputStyle} />
+            </div>
+            <button onClick={addVisit} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer", whiteSpace: "nowrap" }}>Add</button>
           </div>
           <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
             {[...(history.visits || [])]
@@ -387,26 +401,44 @@ export default function MedicalHistoryManagementPage() {
 
         <div style={cardStyle}>
           <h3 style={{ marginTop: 0 }}>Medication Records</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8 }}>
-            <input placeholder="Medication" value={draftMedication.name} onChange={(e) => setDraftMedication((s) => ({ ...s, name: e.target.value }))} style={inputStyle} />
-            <input placeholder="Dosage" value={draftMedication.dosage} onChange={(e) => setDraftMedication((s) => ({ ...s, dosage: e.target.value }))} style={inputStyle} />
-            <input placeholder="Frequency" value={draftMedication.frequency} onChange={(e) => setDraftMedication((s) => ({ ...s, frequency: e.target.value }))} style={inputStyle} />
-            <button onClick={addMedication} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer" }}>Add</button>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) minmax(100px, 1fr) minmax(100px, 1fr) auto", gap: 8, alignItems: "end" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Medication</div>
+              <input placeholder="Medication" value={draftMedication.name} onChange={(e) => setDraftMedication((s) => ({ ...s, name: e.target.value }))} style={inputStyle} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Dosage</div>
+              <input placeholder="Dosage" value={draftMedication.dosage} onChange={(e) => setDraftMedication((s) => ({ ...s, dosage: e.target.value }))} style={inputStyle} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Frequency</div>
+              <input placeholder="Frequency" value={draftMedication.frequency} onChange={(e) => setDraftMedication((s) => ({ ...s, frequency: e.target.value }))} style={inputStyle} />
+            </div>
+            <button onClick={addMedication} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer", whiteSpace: "nowrap" }}>Add</button>
           </div>
           <div style={{ marginTop: 10 }}>
             {(history.medications || []).map((m, i) => <div key={`${m.name}-${i}`} style={{ fontSize: 13, marginBottom: 6 }}>{m.name} - {m.dosage} ({m.frequency})</div>)}
           </div>
 
           <h3 style={{ marginBottom: 8 }}>Comorbidity Records</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8 }}>
-            <input placeholder="Condition" value={draftComorbidity.condition} onChange={(e) => setDraftComorbidity((s) => ({ ...s, condition: e.target.value }))} style={inputStyle} />
-            <input type="date" value={draftComorbidity.diagnosedOn} onChange={(e) => setDraftComorbidity((s) => ({ ...s, diagnosedOn: e.target.value }))} style={inputStyle} />
-            <select value={draftComorbidity.status} onChange={(e) => setDraftComorbidity((s) => ({ ...s, status: e.target.value }))} style={inputStyle}>
-              <option value="active">Active</option>
-              <option value="stable">Stable</option>
-              <option value="resolved">Resolved</option>
-            </select>
-            <button onClick={addComorbidity} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer" }}>Add</button>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 1fr) minmax(140px, 1fr) minmax(100px, 1fr) auto", gap: 8, alignItems: "end" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Condition</div>
+              <input placeholder="Condition" value={draftComorbidity.condition} onChange={(e) => setDraftComorbidity((s) => ({ ...s, condition: e.target.value }))} style={inputStyle} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Diagnosed On</div>
+              <input type="date" value={draftComorbidity.diagnosedOn} onChange={(e) => setDraftComorbidity((s) => ({ ...s, diagnosedOn: e.target.value }))} style={inputStyle} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Status</div>
+              <select value={draftComorbidity.status} onChange={(e) => setDraftComorbidity((s) => ({ ...s, status: e.target.value }))} style={inputStyle}>
+                <option value="active">Active</option>
+                <option value="stable">Stable</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </div>
+            <button onClick={addComorbidity} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer", whiteSpace: "nowrap" }}>Add</button>
           </div>
           <div style={{ marginTop: 10 }}>
             {(history.comorbidities || []).map((c, i) => <div key={`${c.condition}-${i}`} style={{ fontSize: 13, marginBottom: 6 }}>{c.condition} - {c.status} ({c.diagnosedOn || "-"})</div>)}
@@ -416,16 +448,28 @@ export default function MedicalHistoryManagementPage() {
 
       <div style={{ ...cardStyle, marginTop: 14 }}>
         <h3 style={{ marginTop: 0 }}>Scan Comparison</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr auto", gap: 8 }}>
-          <input type="date" value={draftScan.scanDate} onChange={(e) => setDraftScan((s) => ({ ...s, scanDate: e.target.value }))} style={inputStyle} />
-          <select value={draftScan.leftEye} onChange={(e) => setDraftScan((s) => ({ ...s, leftEye: e.target.value }))} style={inputStyle}>
-            {Object.keys(gradeToScore).map((g) => <option key={g}>{g}</option>)}
-          </select>
-          <select value={draftScan.rightEye} onChange={(e) => setDraftScan((s) => ({ ...s, rightEye: e.target.value }))} style={inputStyle}>
-            {Object.keys(gradeToScore).map((g) => <option key={g}>{g}</option>)}
-          </select>
-          <input placeholder="Comments" value={draftScan.comments} onChange={(e) => setDraftScan((s) => ({ ...s, comments: e.target.value }))} style={inputStyle} />
-          <button onClick={addScan} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer" }}>Add</button>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 1fr) minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(120px, 2fr) auto", gap: 8, alignItems: "end" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Date</div>
+            <input type="date" value={draftScan.scanDate} onChange={(e) => setDraftScan((s) => ({ ...s, scanDate: e.target.value }))} style={inputStyle} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Left Eye DR</div>
+            <select value={draftScan.leftEye} onChange={(e) => setDraftScan((s) => ({ ...s, leftEye: e.target.value }))} style={inputStyle}>
+              {Object.keys(gradeToScore).map((g) => <option key={g}>{g}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Right Eye DR</div>
+            <select value={draftScan.rightEye} onChange={(e) => setDraftScan((s) => ({ ...s, rightEye: e.target.value }))} style={inputStyle}>
+              {Object.keys(gradeToScore).map((g) => <option key={g}>{g}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Comments</div>
+            <input placeholder="Comments" value={draftScan.comments} onChange={(e) => setDraftScan((s) => ({ ...s, comments: e.target.value }))} style={inputStyle} />
+          </div>
+          <button onClick={addScan} disabled={saving} style={{ ...inputStyle, width: "auto", cursor: "pointer", whiteSpace: "nowrap" }}>Add</button>
         </div>
 
         <div style={{ marginTop: 10, overflowX: "auto" }}>
