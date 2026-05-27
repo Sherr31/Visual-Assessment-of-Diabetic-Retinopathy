@@ -316,7 +316,7 @@ export default function MedicalHistoryManagementPage() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => navigate("/")} style={{ ...inputStyle, width: "auto", cursor: "pointer" }}>
-            Back to Module 2
+            Back
           </button>
           <button onClick={exportPdf} style={{ ...inputStyle, width: "auto", cursor: "pointer", borderColor: "#bfdbfe", color: "#1d4ed8" }}>
             Export History PDF
