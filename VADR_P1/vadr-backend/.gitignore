@@ -1,4 +1,6 @@
 .env
+backups/
+*.json.gz
 .venv/
 venv/
 __pycache__/

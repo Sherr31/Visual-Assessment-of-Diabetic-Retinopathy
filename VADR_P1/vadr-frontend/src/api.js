@@ -167,12 +167,13 @@ export const medicalHistoryAPI = {
 // ─── Users / staff ───────────────────────────────────────────────────────────
 
 export const userAPI = {
-  getAll: () => request("GET", "/users/"),
+  getAll: (q = "") => request("GET", `/users${q ? `?${q}` : ""}`),
   getDoctors: () => request("GET", "/users/doctors"),
   getOne: (userId) => request("GET", `/users/${userId}`),
   create: (data) => request("POST", "/users/", data),
   update: (userId, data) => request("PUT", `/users/${userId}`, data),
   toggleStatus: (userId) => request("PATCH", `/users/${userId}/status`),
+  resetPassword: (userId, data) => request("POST", `/users/${userId}/reset-password`, data),
   delete: (userId) => request("DELETE", `/users/${userId}`),
 };
 
@@ -191,6 +192,34 @@ export const adminAPI = {
   getPermissions: () => request("GET", "/admin/permissions"),
   updatePermissions: (matrix) => request("PUT", "/admin/permissions", { matrix }),
   resetPermissions: () => request("POST", "/admin/permissions/reset", {}),
+};
+
+// ─── SysAdmin module ─────────────────────────────────────────────────────────
+
+export const rbacAPI = {
+  getRoles: () => request("GET", "/rbac/roles"),
+  getCatalog: () => request("GET", "/rbac/permissions"),
+  updateRole: (id, data) => request("PUT", `/rbac/roles/${id}`, data),
+  myPerms: () => request("GET", "/rbac/me/permissions"),
+};
+
+export const auditAPI = {
+  list: (q = "") => request("GET", `/audit-logs${q ? `?${q}` : ""}`),
+};
+
+export const modelsAPI = {
+  getAll: () => request("GET", "/model-versions"),
+  create: (data) => request("POST", "/model-versions", data),
+  promote: (id) => request("POST", `/model-versions/${id}/promote`),
+  rollback: (id) => request("POST", `/model-versions/${id}/rollback`),
+  compare: (a, b) => request("GET", `/model-versions/compare?a=${a}&b=${b}`),
+};
+
+export const backupsAPI = {
+  getAll: () => request("GET", "/backups"),
+  create: (data) => request("POST", "/backups", data),
+  restore: (id) => request("POST", `/backups/${id}/restore`),
+  delete: (id) => request("DELETE", `/backups/${id}`),
 };
 
 export const checkHealth = () => request("GET", "/health", null, { auth: false });

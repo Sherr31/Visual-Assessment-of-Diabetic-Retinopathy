@@ -27,6 +27,7 @@ class Settings:
     redis_url: str | None
     demo_password: str
     demo_staff_emails: tuple[str, ...]
+    backup_dir: str
 
 
 def _env_root() -> Path:
@@ -70,5 +71,9 @@ settings = Settings(
         "ayesha@vadr.pk",
         "bilal@vadr.pk",
         "sara@vadr.pk",
+    ),
+    backup_dir=os.environ.get(
+        "VADR_BACKUP_DIR",
+        str(_env_root() / "backups"),
     ),
 )

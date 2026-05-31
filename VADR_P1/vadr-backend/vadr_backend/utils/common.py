@@ -60,3 +60,15 @@ def isoformat_dt(dt):
     if not dt:
         return None
     return dt.isoformat() + "Z" if dt.tzinfo is None else dt.isoformat()
+
+
+def gen_audit_id():
+    return "aud" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+
+def gen_backup_id():
+    return "bkp" + utcnow_naive().strftime("%Y%m%d%H%M%S")
+
+
+def gen_model_version_id():
+    return "mv" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))

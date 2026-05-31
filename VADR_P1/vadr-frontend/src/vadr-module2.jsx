@@ -4,13 +4,17 @@ import "./vadr-dashboard.css";
 import ThemeToggle from "./components/ThemeToggle";
 import {
   adminAPI,
+  auditAPI,
   authAPI,
+  backupsAPI,
   checkHealth,
+  modelsAPI,
   patientAPI,
   userAPI,
 } from "./api";
 import { getStoredUser, setSession } from "./api";
 import { isAdmin } from "./lib/session";
+import { AuditLogsTab, BackupsTab, ModelVersionsTab } from "./admin-panels";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -146,6 +150,9 @@ const I = {
   key:     "M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4",
   copy:    "M8 17.929H6c-1.105 0-2-.912-2-2.036V5.036C4 3.91 4.895 3 6 3h8c1.105 0 2 .911 2 2.036v1.866m-6 .17h8c1.105 0 2 .91 2 2.035v10.857C20 21.09 19.105 22 18 22h-8c-1.105 0-2-.911-2-2.036V9.107c0-1.124.895-2.036 2-2.036z",
   warning: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01",
+  log:     "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  cpu:     "M6 18h8M6 14h8M6 10h8M6 6h8M18 6v12",
+  archive: "M21 8v13H3V8M1 3h22v5H1zM10 12h4",
   referral:"M22 2L11 13M22 2l-7 20-4-9-9-4 20-7",
   spinner: "M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83",
 };
@@ -328,6 +335,9 @@ export default function App() {
     { id: "users",    label: "User Accounts",       icon: "users",   roles: ["admin"] },
     { id: "approvals", label: "Doctor Approvals",   icon: "shield",  roles: ["admin"] },
     { id: "rbac",     label: "Roles & Permissions", icon: "shield",  roles: ["admin"] },
+    { id: "audit",    label: "Audit Logs",          icon: "log",     roles: ["admin"] },
+    { id: "models",   label: "AI Models",           icon: "cpu",     roles: ["admin"] },
+    { id: "backups",  label: "Backups",             icon: "archive", roles: ["admin"] },
   ];
   const tabs = allTabs.filter((t) => t.roles.includes(role));
 
@@ -432,6 +442,9 @@ export default function App() {
           {tab === "users"    && <UsersTab    showToast={showToast} />}
           {tab === "approvals" && <ApprovalsTab showToast={showToast} />}
           {tab === "rbac"     && <RBACTab showToast={showToast} />}
+          {tab === "audit"    && <AuditLogsTab auditAPI={auditAPI} showToast={showToast} Icon={Icon} I={I} Btn={Btn} />}
+          {tab === "models"   && <ModelVersionsTab modelsAPI={modelsAPI} showToast={showToast} Icon={Icon} I={I} Btn={Btn} Modal={Modal} Input={Input} />}
+          {tab === "backups"  && <BackupsTab backupsAPI={backupsAPI} showToast={showToast} Btn={Btn} />}
         </div>
       </main>
 

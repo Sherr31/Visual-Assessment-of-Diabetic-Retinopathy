@@ -12,6 +12,9 @@ sessions_col = None
 audit_logs_col = None
 approval_requests_col = None
 rbac_settings_col = None
+roles_col = None
+model_versions_col = None
+backups_col = None
 
 
 def init_db(mongo_uri: str) -> None:
@@ -19,6 +22,7 @@ def init_db(mongo_uri: str) -> None:
     global patients_col, users_col, pending_reg_col, medical_history_col
     global verification_codes_col, refresh_tokens_col, sessions_col
     global audit_logs_col, approval_requests_col, rbac_settings_col
+    global roles_col, model_versions_col, backups_col
 
     client = MongoClient(mongo_uri)
     db = client["vadr_db"]
@@ -33,6 +37,9 @@ def init_db(mongo_uri: str) -> None:
     audit_logs_col = db["audit_logs"]
     approval_requests_col = db["approval_requests"]
     rbac_settings_col = db["rbac_settings"]
+    roles_col = db["roles"]
+    model_versions_col = db["model_versions"]
+    backups_col = db["backups"]
 
     _ensure_indexes()
 
@@ -43,5 +50,6 @@ def _ensure_indexes() -> None:
     sessions_col.create_index([("user_id", ASCENDING), ("revoked", ASCENDING)])
     audit_logs_col.create_index([("timestamp", ASCENDING)])
     audit_logs_col.create_index([("user_id", ASCENDING), ("event_type", ASCENDING)])
+    audit_logs_col.create_index([("actor_id", ASCENDING), ("action", ASCENDING)])
     approval_requests_col.create_index([("user_id", ASCENDING)])
     verification_codes_col.create_index([("email", ASCENDING), ("type", ASCENDING), ("used", ASCENDING)])

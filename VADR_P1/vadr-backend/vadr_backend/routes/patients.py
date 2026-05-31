@@ -3,6 +3,7 @@ from flask import Blueprint, g, request
 from .. import db
 from ..decorators import require_auth
 from ..responses import api_error, api_success
+from ..services.audit_service import log_audit_from_request
 from ..utils.common import gen_temp_password, serialize, today
 
 patients_bp = Blueprint("patients", __name__)
@@ -112,6 +113,14 @@ def register_patient():
     }
     result = db.patients_col.insert_one(new_patient)
     new_patient["_id"] = str(result.inserted_id)
+    log_audit_from_request(
+        g.current_user,
+        action="CREATE",
+        resource_type="patients",
+        resource_id=new_patient["patientId"],
+        table_name="patients",
+        new_value=serialize(new_patient),
+    )
     return api_success(new_patient, message="Patient registered", status=201)
 
 
@@ -128,8 +137,18 @@ def update_patient(patient_id):
     data = request.get_json() or {}
     data.pop("_id", None)
     data.pop("patientId", None)
+    old = db.patients_col.find_one({"patientId": patient_id})
     db.patients_col.update_one({"patientId": patient_id}, {"$set": data})
     updated = db.patients_col.find_one({"patientId": patient_id})
+    log_audit_from_request(
+        g.current_user,
+        action="UPDATE",
+        resource_type="patients",
+        resource_id=patient_id,
+        table_name="patients",
+        old_value=serialize(old),
+        new_value=serialize(updated),
+    )
     return api_success(serialize(updated), message="Patient updated")
 
 
@@ -145,6 +164,15 @@ def toggle_patient_status(patient_id):
 
     new_status = "inactive" if patient["status"] == "active" else "active"
     db.patients_col.update_one({"patientId": patient_id}, {"$set": {"status": new_status}})
+    log_audit_from_request(
+        g.current_user,
+        action="UPDATE",
+        resource_type="patients",
+        resource_id=patient_id,
+        table_name="patients",
+        old_value={"status": patient["status"]},
+        new_value={"status": new_status},
+    )
     return api_success({"status": new_status}, message="Patient status updated")
 
 
@@ -167,10 +195,19 @@ def send_credentials(patient_id):
 @require_auth(roles=["admin"])
 def delete_patient(patient_id):
     """Permanently delete a patient record."""
-    result = db.patients_col.delete_one({"patientId": patient_id})
-    if result.deleted_count == 0:
+    old = db.patients_col.find_one({"patientId": patient_id})
+    if not old:
         return api_error("Patient not found", status=404)
+    db.patients_col.delete_one({"patientId": patient_id})
     db.medical_history_col.delete_one({"patientId": patient_id})
+    log_audit_from_request(
+        g.current_user,
+        action="DELETE",
+        resource_type="patients",
+        resource_id=patient_id,
+        table_name="patients",
+        old_value=serialize(old),
+    )
     return api_success({"patientId": patient_id}, message="Patient deleted")
 
 
@@ -204,6 +241,7 @@ def upsert_medical_history(patient_id):
         return api_error("Forbidden", code="FORBIDDEN", status=403)
 
     data = request.get_json() or {}
+    old_history = db.medical_history_col.find_one({"patientId": patient_id})
     payload = {
         "visits": data.get("visits", []),
         "medications": data.get("medications", []),
@@ -225,6 +263,15 @@ def upsert_medical_history(patient_id):
     db.patients_col.update_one(
         {"patientId": patient_id},
         {"$set": {"scans": len(scans), "lastScan": last_scan}},
+    )
+    log_audit_from_request(
+        g.current_user,
+        action="UPDATE",
+        resource_type="medical_history",
+        resource_id=patient_id,
+        table_name="medical_history",
+        old_value=serialize(old_history) if old_history else None,
+        new_value=serialize(history),
     )
     return api_success(serialize(history), message="Medical history updated")
 
