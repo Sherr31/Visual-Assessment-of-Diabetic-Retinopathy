@@ -76,16 +76,29 @@ def smtp_send_message(msg: EmailMessage, cfg: dict) -> tuple[bool, str | None]:
     return False, str(last_err) if last_err else "SMTP connection failed"
 
 
-def send_registration_verification_email(to_email: str, code: str, display_name: str):
+def _send_email(to_email: str, subject: str, body: str) -> tuple[bool, str | None]:
     cfg = smtp_settings()
-    log_code = os.environ.get("VADR_LOG_EMAIL_CODE", "").lower() in ("1", "true", "yes")
-    if log_code:
-        logging.getLogger("vadr.mail").warning("VADR registration code for %s: %s", to_email, code)
-
     if not cfg["host"] or not cfg["sender"]:
         return False, "SMTP is not configured (set MAIL_SERVER and MAIL_DEFAULT_SENDER)."
     if not cfg["user"]:
         return False, "SMTP username not set (MAIL_USERNAME)."
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = cfg["sender"]
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    ok, err = smtp_send_message(msg, cfg)
+    if not ok:
+        logging.getLogger("vadr.mail").error("SMTP send failed: %s", err)
+    return ok, err
+
+
+def send_registration_verification_email(to_email: str, code: str, display_name: str):
+    log_code = os.environ.get("VADR_LOG_EMAIL_CODE", "").lower() in ("1", "true", "yes")
+    if log_code:
+        logging.getLogger("vadr.mail").warning("VADR registration code for %s: %s", to_email, code)
 
     body = (
         f"Hi {display_name},\n\n"
@@ -93,13 +106,24 @@ def send_registration_verification_email(to_email: str, code: str, display_name:
         f"This code expires in {settings.reg_code_expires_min} minutes.\n"
         "If you did not request this, you can ignore this email.\n"
     )
-    msg = EmailMessage()
-    msg["Subject"] = "Verify your VADR registration"
-    msg["From"] = cfg["sender"]
-    msg["To"] = to_email
-    msg.set_content(body)
+    return _send_email(to_email, "Verify your VADR registration", body)
 
-    ok, err = smtp_send_message(msg, cfg)
-    if not ok:
-        logging.getLogger("vadr.mail").error("SMTP send failed after fallbacks: %s", err)
-    return ok, err
+
+def send_doctor_approval_email(to_email: str, display_name: str):
+    body = (
+        f"Hi {display_name},\n\n"
+        "Your VADR doctor account has been approved. You may now sign in and access assigned patients.\n\n"
+        "Thank you,\nVADR Team\n"
+    )
+    return _send_email(to_email, "Your VADR doctor account has been approved", body)
+
+
+def send_doctor_rejection_email(to_email: str, display_name: str, reason: str, reapply_days: int):
+    body = (
+        f"Hi {display_name},\n\n"
+        "Your VADR doctor registration was not approved at this time.\n\n"
+        f"Reason: {reason or 'No reason provided.'}\n\n"
+        f"You may submit a new application after {reapply_days} days.\n\n"
+        "Thank you,\nVADR Team\n"
+    )
+    return _send_email(to_email, "Update on your VADR doctor application", body)

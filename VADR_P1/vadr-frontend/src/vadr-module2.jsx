@@ -1,70 +1,92 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-
-// ══════════════════════════════════════════════════════════════════════════════
-// API LAYER — all calls go to Flask backend on port 5000
-// ══════════════════════════════════════════════════════════════════════════════
-const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
-
-const request = async (method, endpoint, body = null) => {
-  const headers = { "Content-Type": "application/json" };
-  const tok = localStorage.getItem("vadr_token");
-  if (tok) headers.Authorization = `Bearer ${tok}`;
-  const options = { method, headers };
-  if (body) options.body = JSON.stringify(body);
-  const res = await fetch(`${BASE_URL}${endpoint}`, options);
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) {
-    localStorage.removeItem("vadr_token");
-    localStorage.removeItem("vadr_user");
-    throw new Error(data.error || "Session expired");
-  }
-  if (!res.ok) throw new Error(data.error || "Request failed");
-  return data;
-};
-
-const patientAPI = {
-  getAll:          ()           => request("GET",   "/patients"),
-  register:        (data)       => request("POST",  "/patients", data),
-  update:          (id, data)   => request("PUT",   `/patients/${id}`, data),
-  toggleStatus:    (id)         => request("PATCH", `/patients/${id}/status`),
-  sendCredentials: (id)         => request("PATCH", `/patients/${id}/send-credentials`),
-  delete:          (id)         => request("DELETE",`/patients/${id}`),
-};
-
-const userAPI = {
-  getAll:       ()         => request("GET",   "/users"),
-  create:       (data)     => request("POST",  "/users", data),
-  update:       (id, data) => request("PUT",   `/users/${id}`, data),
-  toggleStatus: (id)       => request("PATCH", `/users/${id}/status`),
-  delete:       (id)       => request("DELETE",`/users/${id}`),
-};
+import "./vadr-dashboard.css";
+import ThemeToggle from "./components/ThemeToggle";
+import {
+  adminAPI,
+  authAPI,
+  checkHealth,
+  patientAPI,
+  userAPI,
+} from "./api";
+import { getStoredUser, setSession } from "./api";
+import { isAdmin } from "./lib/session";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════════════════════
-const ROLES = ["admin", "doctor", "technician"];
+const ROLES = ["admin", "doctor", "screener"];
 const ROLE_PERMISSIONS = {
   admin:      { label: "Admin",      color: "#1a56db", bg: "#ebf5ff", desc: "Full system access"     },
   doctor:     { label: "Doctor",     color: "#0694a2", bg: "#e0f7fa", desc: "Review & diagnose"       },
-  technician: { label: "Technician", color: "#7e3af2", bg: "#f3e8ff", desc: "Upload & process images" },
+  screener:   { label: "Screener",   color: "#7e3af2", bg: "#f3e8ff", desc: "Upload fundus images"    },
   patient:    { label: "Patient",    color: "#057a55", bg: "#def7ec", desc: "View own records"         },
 };
 
-const PERMISSION_MATRIX = {
-  "View Dashboard":        { admin: true,  doctor: true,  technician: true,  patient: false },
-  "Manage Patients":       { admin: true,  doctor: true,  technician: false, patient: false },
-  "Upload Fundus Images":  { admin: true,  doctor: true,  technician: true,  patient: false },
-  "Run AI Prediction":     { admin: true,  doctor: true,  technician: false, patient: false },
-  "Review AI Results":     { admin: true,  doctor: true,  technician: false, patient: false },
-  "Generate Reports":      { admin: true,  doctor: true,  technician: false, patient: false },
-  "View Own Reports":      { admin: true,  doctor: true,  technician: true,  patient: true  },
-  "Manage Users":          { admin: true,  doctor: false, technician: false, patient: false },
-  "System Administration": { admin: true,  doctor: false, technician: false, patient: false },
-  "View Analytics":        { admin: true,  doctor: true,  technician: false, patient: false },
-  "Export Data":           { admin: true,  doctor: true,  technician: false, patient: false },
-  "Patient Self-Service":  { admin: false, doctor: false, technician: false, patient: true  },
+const DEFAULT_PERMISSION_MATRIX = {
+  "View Dashboard":        { admin: true,  doctor: true,  screener: true,  patient: false },
+  "Manage Patients":       { admin: true,  doctor: true,  screener: false, patient: false },
+  "Upload Fundus Images":  { admin: true,  doctor: true,  screener: true,  patient: false },
+  "Run AI Prediction":     { admin: true,  doctor: true,  screener: false, patient: false },
+  "Review AI Results":     { admin: true,  doctor: true,  screener: false, patient: false },
+  "Generate Reports":      { admin: true,  doctor: true,  screener: false, patient: false },
+  "View Own Reports":      { admin: true,  doctor: true,  screener: true,  patient: true  },
+  "Manage Users":          { admin: true,  doctor: false, screener: false, patient: false },
+  "System Administration": { admin: true,  doctor: false, screener: false, patient: false },
+  "View Analytics":        { admin: true,  doctor: true,  screener: false, patient: false },
+  "Export Data":           { admin: true,  doctor: true,  screener: false, patient: false },
+  "Patient Self-Service":  { admin: false, doctor: false, screener: false, patient: true  },
 };
+
+const ADMIN_LOCKED_PERMS = ["System Administration", "Manage Users"];
+
+const PORTAL_SUBTITLES = {
+  admin: "Administration Portal",
+  doctor: "Clinical Portal",
+  screener: "Screening Portal",
+};
+
+const TAB_HEADINGS = {
+  patients: "Patient Registry",
+  users: "Staff Management",
+  approvals: "Doctor Approvals",
+  rbac: "Access Control",
+};
+
+function useAnimatedNumber(target, duration = 600, decimals = 0) {
+  const [display, setDisplay] = useState(typeof target === "number" ? 0 : target);
+  useEffect(() => {
+    if (typeof target !== "number" || Number.isNaN(target)) {
+      setDisplay(target);
+      return;
+    }
+    const from = 0;
+    const to = target;
+    const t0 = performance.now();
+    const tick = (now) => {
+      const p = Math.min((now - t0) / duration, 1);
+      const eased = 1 - (1 - p) ** 3;
+      const current = from + (to - from) * eased;
+      setDisplay(decimals ? parseFloat(current.toFixed(decimals)) : Math.round(current));
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [target, duration, decimals]);
+  return display;
+}
+
+function EmptyState({ icon, title, description, actionLabel, onAction }) {
+  return (
+    <div className="vadr-empty">
+      <div className="vadr-empty-icon">{icon}</div>
+      <h3>{title}</h3>
+      <p>{description}</p>
+      {actionLabel && onAction && (
+        <Btn icon="plus" onClick={onAction}>{actionLabel}</Btn>
+      )}
+    </div>
+  );
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -85,16 +107,16 @@ const exportCSV = (data, filename) => {
 // BASE STYLES
 // ══════════════════════════════════════════════════════════════════════════════
 const inputStyle = {
-  border: "1.5px solid #e5e7eb", borderRadius: 8, padding: "8px 12px",
-  fontSize: 13, color: "#111827", outline: "none", background: "#fff",
+  border: "1.5px solid var(--vadr-border)", borderRadius: 8, padding: "8px 12px",
+  fontSize: 13, color: "var(--vadr-text)", outline: "none", background: "var(--vadr-input-bg)",
   fontFamily: "inherit", width: "100%", boxSizing: "border-box",
 };
 const thStyle = {
   padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700,
-  color: "#6b7280", letterSpacing: 0.5, textTransform: "uppercase",
-  borderBottom: "1px solid #f3f4f6", whiteSpace: "nowrap", background: "#f9fafb",
+  color: "var(--vadr-text-muted)", letterSpacing: 0.5, textTransform: "uppercase",
+  borderBottom: "1px solid var(--vadr-border)", whiteSpace: "nowrap", background: "var(--vadr-surface-muted)",
 };
-const tdStyle = { padding: "12px 16px", borderBottom: "1px solid #f3f4f6" };
+const tdStyle = { padding: "12px 16px", borderBottom: "1px solid var(--vadr-border)", color: "var(--vadr-text)" };
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SHARED UI COMPONENTS
@@ -139,8 +161,10 @@ const Badge = ({ role }) => {
 
 const StatusDot = ({ status }) => {
   const m = {
-    active:   ["#057a55", "#10b981", "Active"],
-    inactive: ["#9ca3af", "#d1d5db", "Inactive"],
+    active:            ["#057a55", "#10b981", "Active"],
+    inactive:          ["#9ca3af", "#d1d5db", "Inactive"],
+    suspended:         ["#b45309", "#f59e0b", "Suspended"],
+    pending_approval:  ["#1d4ed8", "#3b82f6", "Pending approval"],
   };
   const [c, d, l] = m[status] || m.inactive;
   return (
@@ -175,14 +199,14 @@ const Input = ({ label, value, onChange, type = "text", options, required, place
 const Btn = ({ children, onClick, variant = "primary", size = "md", icon, disabled, loading, style = {} }) => {
   const sz = { sm: { padding: "5px 12px", fontSize: 12 }, md: { padding: "8px 16px", fontSize: 13 }, lg: { padding: "10px 22px", fontSize: 14 } };
   const vr = {
-    primary:   { background: "#1a56db", color: "#fff",    border: "none" },
-    secondary: { background: "#f3f4f6", color: "#374151", border: "none" },
-    danger:       { background: "#fef2f2", color: "#dc2626", border: "1.5px solid #fecaca" },
-    dangerSolid:  { background: "#dc2626", color: "#fff", border: "none" },
-    ghost:     { background: "transparent", color: "#6b7280", border: "none" },
-    success:   { background: "#ecfdf5", color: "#059669", border: "1.5px solid #a7f3d0" },
-    warning:   { background: "#fffbeb", color: "#d97706", border: "1.5px solid #fde68a" },
-    teal:      { background: "#e0f7fa", color: "#0694a2", border: "1.5px solid #b2ebf2" },
+    primary:   { background: "var(--vadr-primary)", color: "#fff",    border: "none" },
+    secondary: { background: "var(--vadr-btn-secondary-bg)", color: "var(--vadr-text-secondary)", border: "none" },
+    danger:       { background: "var(--vadr-error-bg)", color: "var(--vadr-error-text)", border: "1.5px solid var(--vadr-error-border)" },
+    dangerSolid:  { background: "var(--vadr-error-text)", color: "#fff", border: "none" },
+    ghost:     { background: "transparent", color: "var(--vadr-text-muted)", border: "none" },
+    success:   { background: "var(--vadr-success-bg)", color: "var(--vadr-success-text)", border: "1.5px solid var(--vadr-success-border)" },
+    warning:   { background: "var(--vadr-warning-bg)", color: "var(--vadr-warning-text)", border: "1.5px solid var(--vadr-warning-border)" },
+    teal:      { background: "var(--vadr-primary-soft)", color: "#0694a2", border: "1.5px solid var(--vadr-primary-border)" },
   };
   return (
     <button onClick={onClick} disabled={disabled || loading}
@@ -197,11 +221,11 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", icon, disabl
 };
 
 const Modal = ({ title, onClose, children, width = 540 }) => (
-  <div style={{ position: "fixed", inset: 0, background: "#00000060", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-    <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: width, maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px #0004" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px 16px", borderBottom: "1px solid #f3f4f6" }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#111827" }}>{title}</h3>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: 4 }}>
+  <div className="vadr-modal-backdrop" onClick={onClose}>
+    <div className="vadr-modal" style={{ maxWidth: width }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px 16px", borderBottom: "1px solid var(--vadr-border)" }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--vadr-text)" }}>{title}</h3>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--vadr-text-muted)", padding: 4 }}>
           <Icon d={I.close} size={18} />
         </button>
       </div>
@@ -214,24 +238,29 @@ const Toast = ({ msg, type }) => {
   const bg = { success: "#059669", error: "#dc2626", warning: "#d97706", info: "#1a56db" };
   const ic = { success: I.check, error: I.close, warning: I.warning, info: I.info };
   return (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 2000, background: bg[type] || bg.info, color: "#fff", padding: "12px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, boxShadow: "0 8px 24px #0003", display: "flex", alignItems: "center", gap: 8, maxWidth: 380 }}>
+    <div className="vadr-toast" style={{ background: bg[type] || bg.info }}>
       <Icon d={ic[type] || ic.info} size={15} color="#fff" />{msg}
     </div>
   );
 };
 
-const StatCard = ({ label, value, icon, color = "#1a56db", sub }) => (
-  <div style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: "18px 22px", display: "flex", alignItems: "center", gap: 16, flex: 1, minWidth: 160 }}>
-    <div style={{ width: 44, height: 44, borderRadius: 12, background: `${color}12`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-      <Icon d={I[icon]} size={20} color={color} />
+const StatCard = ({ label, value, icon, color = "#1a56db", sub, loading, suffix = "", decimals = 0 }) => {
+  const isNum = typeof value === "number" && !Number.isNaN(value);
+  const animated = useAnimatedNumber(isNum ? value : 0, loading ? 0 : 600, decimals);
+  const shown = loading ? "…" : isNum ? `${animated}${suffix}` : value;
+  return (
+    <div className="vadr-stat-card">
+      <div className="vadr-stat-icon" style={{ background: `${color}14` }}>
+        <Icon d={I[icon]} size={22} color={color} />
+      </div>
+      <div>
+        <div className="vadr-stat-value">{shown}</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginTop: 4, fontWeight: 500 }}>{label}</div>
+        {sub && <div style={{ fontSize: 11, color, marginTop: 4, fontWeight: 600 }}>{sub}</div>}
+      </div>
     </div>
-    <div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3, fontWeight: 500 }}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color, marginTop: 2, fontWeight: 600 }}>{sub}</div>}
-    </div>
-  </div>
-);
+  );
+};
 
 // Loading skeleton row
 const SkeletonRow = ({ cols }) => (
@@ -257,131 +286,154 @@ export default function App() {
   const navigate = useNavigate();
   const [tab, setTab]         = useState("patients");
   const [toast, setToast]     = useState(null);
-  const [backendOk, setBackendOk] = useState(null); // null=checking, true=ok, false=down
-  const [sessionUser, setSessionUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("vadr_user") || "null");
-    } catch {
-      return null;
-    }
-  });
+  const [backendOk, setBackendOk] = useState(null);
+  const [sessionUser, setSessionUser] = useState(() => getStoredUser());
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef(null);
 
-  // Check if backend is reachable on mount
   useEffect(() => {
-    fetch(`${BASE_URL}/health`)
-      .then(r => r.ok ? setBackendOk(true) : setBackendOk(false))
+    checkHealth()
+      .then(() => setBackendOk(true))
       .catch(() => setBackendOk(false));
   }, []);
 
-  const showToast = (msg, type = "success") => {
+  useEffect(() => {
+    if (!profileOpen) return undefined;
+    const close = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [profileOpen]);
+
+  const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    try {
+      const user = await authAPI.me();
+      setSession({ user });
+      setSessionUser(user);
+      showToast("Profile updated");
+    } catch (err) {
+      showToast(err.message || "Could not load profile", "error");
+    }
+  }, [showToast]);
+
+  const role = sessionUser?.role;
+  const allTabs = [
+    { id: "patients", label: "Patients",           icon: "patient", roles: ["admin", "doctor", "screener"] },
+    { id: "users",    label: "User Accounts",       icon: "users",   roles: ["admin"] },
+    { id: "approvals", label: "Doctor Approvals",   icon: "shield",  roles: ["admin"] },
+    { id: "rbac",     label: "Roles & Permissions", icon: "shield",  roles: ["admin"] },
+  ];
+  const tabs = allTabs.filter((t) => t.roles.includes(role));
+
+  useEffect(() => {
+    if (tabs.length && !tabs.find((t) => t.id === tab)) setTab(tabs[0].id);
+  }, [tab, tabs]);
+
+  const handleLogout = async () => {
+    await authAPI.logout();
+    setSessionUser(null);
+    navigate("/login", { replace: true });
   };
 
-  const tabs = [
-    { id: "patients", label: "Patients",           icon: "patient" },
-    { id: "users",    label: "User Accounts",       icon: "users"   },
-    { id: "rbac",     label: "Roles & Permissions", icon: "shield"  },
-  ];
-
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans','Segoe UI',sans-serif", color: "#111827" }}>
+    <div className="vadr-app">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
-        input:focus, select:focus, textarea:focus { border-color: #1a56db !important; box-shadow: 0 0 0 3px #1a56db18; outline: none; }
+        input:focus, select:focus, textarea:focus { border-color: var(--vadr-primary) !important; box-shadow: 0 0 0 3px var(--vadr-focus-ring) !important; outline: none; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-        tbody tr:hover td { background: #f8fafc !important; }
-        button:hover:not(:disabled) { opacity: 0.88; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        ::-webkit-scrollbar-thumb { background: var(--vadr-scrollbar); border-radius: 3px; }
+        button:hover:not(:disabled) { opacity: 0.92; }
       `}</style>
 
-      {/* Backend status bar */}
       {backendOk === false && (
-        <div style={{ background: "#fef2f2", borderBottom: "1.5px solid #fecaca", padding: "8px 32px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#dc2626", fontWeight: 600 }}>
+        <div className="vadr-status-bar vadr-status-bar--err">
           <Icon d={I.warning} size={14} color="#dc2626" />
           Backend not reachable — make sure Flask is running on port 5000 (python app.py)
         </div>
       )}
       {backendOk === true && (
-        <div style={{ background: "#ecfdf5", borderBottom: "1.5px solid #a7f3d0", padding: "6px 32px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#059669", fontWeight: 600 }}>
-          <Icon d={I.check} size={13} color="#059669" />
+        <div className="vadr-status-bar vadr-status-bar--ok">
+          <span className="vadr-status-dot" />
           Connected to VADR Backend — MongoDB live
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ background: "#fff", borderBottom: "1.5px solid #e5e7eb", padding: "0 32px", display: "flex", alignItems: "center", height: 60 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: 40 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#1a56db,#0694a2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon d={I.eye} size={16} color="#fff" />
+      <header className="vadr-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginRight: 32 }}>
+          <div className="vadr-brand-mark">
+            <Icon d={I.eye} size={18} color="#fff" />
           </div>
-          <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: -0.5 }}>VADR</span>
-          <span style={{ fontSize: 12, color: "#9ca3af", fontWeight: 500 }}>/ Module 2</span>
+          <div className="vadr-brand-title">VADR</div>
+          <span className="vadr-brand-sub">{PORTAL_SUBTITLES[role] || "Staff Portal"}</span>
         </div>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 18px", height: 60, display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: tab === t.id ? 700 : 500, color: tab === t.id ? "#1a56db" : "#6b7280", borderBottom: tab === t.id ? "2.5px solid #1a56db" : "2.5px solid transparent", fontFamily: "inherit" }}>
-            <Icon d={I[t.icon]} size={15} color={tab === t.id ? "#1a56db" : "#9ca3af"} />{t.label}
+          <button key={t.id} type="button" onClick={() => setTab(t.id)}
+            className={`vadr-tab${tab === t.id ? " vadr-tab--active" : ""}`}>
+            <Icon d={I[t.icon]} size={15} color={tab === t.id ? "#1a56db" : "#94a3b8"} />{t.label}
           </button>
         ))}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <ThemeToggle iconOnly />
           {(sessionUser?.role === "doctor" || sessionUser?.role === "admin") && (
-            <Link
-              to="/doctor"
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: "#1a56db",
-                textDecoration: "none",
-                padding: "6px 12px",
-                borderRadius: 8,
-                border: "1px solid #1a56db44",
-                background: "#eff6ff",
-              }}
-            >
-              DR Dashboard
-            </Link>
+            <Link to="/doctor" className="vadr-link-btn">DR Dashboard</Link>
           )}
           <button
             type="button"
-            onClick={() => {
-              localStorage.removeItem("vadr_token");
-              localStorage.removeItem("vadr_user");
-              setSessionUser(null);
-              navigate("/login", { replace: true });
-            }}
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: "#6b7280",
-              background: "#f3f4f6",
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-              padding: "6px 12px",
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
+            onClick={handleLogout}
+            className="vadr-theme-toggle"
+            style={{ fontFamily: "inherit" }}
           >
             Log out
           </button>
-          <Avatar name={sessionUser?.name || "User"} size={32} color="#1a56db" />
-          <div style={{ fontSize: 12 }}>
-            <div style={{ fontWeight: 700 }}>{sessionUser?.name || "Staff"}</div>
-            <div style={{ color: "#9ca3af", fontSize: 11 }}>
-              {(sessionUser?.role && ROLE_PERMISSIONS[sessionUser.role]?.label) || sessionUser?.role || "—"}
-            </div>
+          <div style={{ position: "relative" }} ref={profileRef}>
+            <button
+              type="button"
+              onClick={() => setProfileOpen((v) => !v)}
+              className={`vadr-profile-btn${profileOpen ? " vadr-profile-btn--open" : ""}`}
+            >
+              <Avatar name={sessionUser?.name || "User"} size={34} color="#1a56db" />
+              <div style={{ fontSize: 12, textAlign: "left" }}>
+                <div style={{ fontWeight: 700 }}>{sessionUser?.name || "Staff"}</div>
+                <div style={{ color: "var(--vadr-text-faint)", fontSize: 11 }}>
+                  {(sessionUser?.role && ROLE_PERMISSIONS[sessionUser.role]?.label) || sessionUser?.role || "—"}
+                </div>
+              </div>
+            </button>
+            {profileOpen && (
+              <div className="vadr-profile-menu">
+                <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>{sessionUser?.name}</div>
+                <div style={{ fontSize: 12, color: "var(--vadr-text-muted)", marginBottom: 12 }}>{sessionUser?.email}</div>
+                <div style={{ display: "grid", gap: 8, fontSize: 12 }}>
+                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Role:</span> {ROLE_PERMISSIONS[sessionUser?.role]?.label || sessionUser?.role}</div>
+                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Status:</span> {sessionUser?.status || "—"}</div>
+                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Department:</span> {sessionUser?.department || "—"}</div>
+                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Last login:</span> {sessionUser?.lastLogin || "—"}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <Btn size="sm" variant="secondary" onClick={refreshProfile}>Refresh</Btn>
+                  <Btn size="sm" onClick={() => setProfileOpen(false)}>Close</Btn>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      </header>
 
-      <div style={{ padding: "28px 32px" }}>
-        {tab === "patients" && <PatientsTab showToast={showToast} />}
-        {tab === "users"    && <UsersTab    showToast={showToast} />}
-        {tab === "rbac"     && <RBACTab />}
-      </div>
+      <main className="vadr-main">
+        <div key={tab} className="vadr-panel">
+          {tab === "patients" && <PatientsTab showToast={showToast} sessionUser={sessionUser} />}
+          {tab === "users"    && <UsersTab    showToast={showToast} />}
+          {tab === "approvals" && <ApprovalsTab showToast={showToast} />}
+          {tab === "rbac"     && <RBACTab showToast={showToast} />}
+        </div>
+      </main>
 
       {toast && <Toast msg={toast.msg} type={toast.type} />}
     </div>
@@ -391,7 +443,7 @@ export default function App() {
 // ══════════════════════════════════════════════════════════════════════════════
 // PATIENTS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function PatientsTab({ showToast }) {
+function PatientsTab({ showToast, sessionUser }) {
   const [patients, setPatients]         = useState([]);
   const [users, setUsers]               = useState([]);
   const [loading, setLoading]           = useState(true);
@@ -406,37 +458,49 @@ function PatientsTab({ showToast }) {
   const [step, setStep]                 = useState(1);
   const [copied, setCopied]             = useState("");
   const [deletingId, setDeletingId]     = useState(null);
+  const canDelete = isAdmin(sessionUser);
+  const canEditPatients = ["admin", "doctor"].includes(sessionUser?.role);
 
-  // ── Fetch data from backend on mount ──
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [pts, usrs] = await Promise.all([patientAPI.getAll(), userAPI.getAll()]);
-      setPatients(pts);
-      setUsers(usrs);
+      const pts = await patientAPI.getAll();
+      setPatients(Array.isArray(pts) ? pts : []);
+      try {
+        const usrs = isAdmin(sessionUser) ? await userAPI.getAll() : await userAPI.getDoctors();
+        setUsers(Array.isArray(usrs) ? usrs : []);
+      } catch {
+        setUsers([]);
+      }
     } catch (err) {
-      showToast("Could not load data — is Flask running?", "error");
+      showToast(err.message || "Could not load data — is Flask running?", "error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sessionUser?.id, sessionUser?.role, showToast]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const doctors    = users.filter(u => u.role === "doctor");
-  const doctorName = id => users.find(u => u.id === id)?.name || "Unassigned";
+  const doctors    = users.filter(u => u.role === "doctor" && u.status === "active");
+  const doctorName = val => {
+    if (!val) return "Unassigned";
+    const byId = users.find(u => u.id === val);
+    if (byId) return byId.name;
+    return val;
+  };
 
   const filtered = patients.filter(p => {
     const q = search.toLowerCase();
     return (!q || p.name?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q) || p.phone?.includes(q) || p.patientId?.includes(q))
       && (!filterStatus || p.status === filterStatus)
       && (!filterGender || p.gender === filterGender)
-      && (!filterDoctor || p.assignedDoctor === filterDoctor);
+      && (!filterDoctor || p.assignedDoctor === filterDoctor || doctorName(p.assignedDoctor) === filterDoctor);
   });
 
   // ── Open modals ──
   const openAdd = () => {
-    setForm({ name: "", age: "", gender: "Male", email: "", phone: "", diabetesType: "Type 2", hba1c: "", diagnosedYear: "", address: "", assignedDoctor: "", status: "active", referral: "Self" });
+    const defaultDoctor = sessionUser?.role === "doctor" ? sessionUser.name : "";
+    setForm({ name: "", age: "", gender: "Male", email: "", phone: "", diabetesType: "Type 2", hba1c: "", diagnosedYear: "", address: "", assignedDoctor: defaultDoctor, status: "active", referral: "Self" });
     setStep(1);
     setModal("add");
   };
@@ -533,17 +597,34 @@ function PatientsTab({ showToast }) {
   const activeCount    = patients.filter(p => p.status === "active").length;
   const pendingCredits = patients.filter(p => !p.credentialsSent).length;
   const avgHba1c       = patients.length
-    ? (patients.reduce((s, p) => s + parseFloat(p.hba1c || 0), 0) / patients.length).toFixed(1)
-    : "0.0";
+    ? patients.reduce((s, p) => s + parseFloat(p.hba1c || 0), 0) / patients.length
+    : 0;
+  const totalScans     = patients.reduce((s, p) => s + (p.scans || 0), 0);
+  const firstName      = sessionUser?.name?.split(" ")[0] || "there";
+  const hour           = new Date().getHours();
+  const greeting       = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   return (
     <div>
+      <div className="vadr-welcome">
+        <div>
+          <h2>{greeting}, {firstName}</h2>
+          <p>
+            {TAB_HEADINGS.patients}
+            {!loading && ` · ${patients.length} patient${patients.length === 1 ? "" : "s"} in registry`}
+          </p>
+        </div>
+        <Btn icon="plus" onClick={openAdd} style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.35)", color: "#fff" }}>
+          Register Patient
+        </Btn>
+      </div>
+
       {/* Stats */}
       <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
-        <StatCard label="Total Patients"      value={loading ? "..." : patients.length}      icon="patient"  color="#1a56db" sub={loading ? "" : `${activeCount} active`} />
-        <StatCard label="Total Scans"         value={loading ? "..." : patients.reduce((s, p) => s + (p.scans || 0), 0)} icon="eye" color="#0694a2" />
-        <StatCard label="Avg HbA1c"           value={loading ? "..." : avgHba1c + "%"}       icon="info"     color="#7e3af2" />
-        <StatCard label="Credentials Pending" value={loading ? "..." : pendingCredits}       icon="mail"     color="#d97706" sub={pendingCredits > 0 ? "Need to send" : "All sent ✓"} />
+        <StatCard label="Total Patients" value={patients.length} loading={loading} icon="patient" color="#1a56db" sub={loading ? "" : `${activeCount} active`} />
+        <StatCard label="Total Scans" value={totalScans} loading={loading} icon="eye" color="#0694a2" />
+        <StatCard label="Avg HbA1c" value={parseFloat(avgHba1c.toFixed(1))} loading={loading} suffix="%" decimals={1} icon="info" color="#7e3af2" />
+        <StatCard label="Credentials Pending" value={pendingCredits} loading={loading} icon="mail" color="#d97706" sub={pendingCredits > 0 ? "Need to send" : "All sent ✓"} />
       </div>
 
       {/* Pending credentials banner */}
@@ -557,7 +638,7 @@ function PatientsTab({ showToast }) {
       )}
 
       {/* Toolbar */}
-      <div style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: "16px 20px", marginBottom: 16 }}>
+      <div className="vadr-surface vadr-surface-pad">
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
             <Icon d={I.search} size={14} color="#9ca3af" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
@@ -571,7 +652,7 @@ function PatientsTab({ showToast }) {
           </select>
           <select value={filterDoctor} onChange={e => setFilterDoctor(e.target.value)} style={{ ...inputStyle, width: 170 }}>
             <option value="">All Doctors</option>
-            {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {doctors.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
           </select>
           <Btn icon="export" variant="secondary" onClick={() => exportCSV(filtered.map(p => ({ ...p, assignedDoctor: doctorName(p.assignedDoctor) })), "patients.csv")}>Export CSV</Btn>
           <Btn icon="plus" onClick={openAdd}>Register Patient</Btn>
@@ -579,12 +660,12 @@ function PatientsTab({ showToast }) {
       </div>
 
       {/* Table */}
-      <div style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, overflow: "hidden" }}>
-        <div style={{ padding: "14px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>Patient Records</span>
-          <span style={{ fontSize: 12, color: "#9ca3af" }}>{filtered.length} of {patients.length}</span>
+      <div className="vadr-surface vadr-surface-panel">
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--vadr-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontWeight: 700, fontSize: 14, color: "var(--vadr-text)" }}>Patient Records</span>
+          <span style={{ fontSize: 12, color: "var(--vadr-text-faint)" }}>{filtered.length} of {patients.length}</span>
         </div>
-        <div style={{ overflowX: "auto" }}>
+        <div style={{ overflowX: "auto" }} className="vadr-table-wrap">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr>{["Patient ID", "Patient", "Age/Gender", "Contact", "Diabetes", "Doctor", "Scans", "Credentials", "Status", "Actions"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
@@ -592,7 +673,21 @@ function PatientsTab({ showToast }) {
             <tbody>
               {loading && [1, 2, 3, 4].map(i => <SkeletonRow key={i} cols={10} />)}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={10} style={{ padding: "40px 20px", textAlign: "center", color: "#9ca3af" }}>No patients found</td></tr>
+                <tr>
+                  <td colSpan={10} style={{ padding: 0, border: "none" }}>
+                    <EmptyState
+                      icon="👁"
+                      title={patients.length === 0 ? "No patients yet" : "No matches found"}
+                      description={
+                        patients.length === 0
+                          ? "Register your first patient to start tracking diabetic retinopathy assessments."
+                          : "Try adjusting your search or filters to find what you're looking for."
+                      }
+                      actionLabel={patients.length === 0 ? "Register Patient" : undefined}
+                      onAction={patients.length === 0 ? openAdd : undefined}
+                    />
+                  </td>
+                </tr>
               )}
               {!loading && filtered.map(p => (
                 <tr key={p._id || p.patientId}>
@@ -628,8 +723,9 @@ function PatientsTab({ showToast }) {
                   <td style={tdStyle}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       <Btn size="sm" variant="ghost" icon="eye"     onClick={() => openView(p)} />
-                      <Btn size="sm" variant="ghost" icon="edit"    onClick={() => openEdit(p)} />
+                      {canEditPatients && <Btn size="sm" variant="ghost" icon="edit"    onClick={() => openEdit(p)} />}
                       <Btn size="sm" variant="ghost" icon="history" onClick={() => openHistory(p)} />
+                      {sessionUser?.role !== "screener" && (
                       <Link
                         to={`/medical-history/${p.patientId}`}
                         style={{
@@ -647,10 +743,14 @@ function PatientsTab({ showToast }) {
                       >
                         Medical History
                       </Link>
-                      <Btn size="sm" variant="teal"  icon="key"     onClick={() => openCreds(p)}>Creds</Btn>
+                      )}
+                      {canEditPatients && <Btn size="sm" variant="teal"  icon="key"     onClick={() => openCreds(p)}>Creds</Btn>}
+                      {canEditPatients && (
                       <Btn size="sm" variant={p.status === "active" ? "danger" : "success"} onClick={() => toggleStatus(p.patientId)} disabled={deletingId === p.patientId}>
                         {p.status === "active" ? "Deactivate" : "Activate"}
                       </Btn>
+                      )}
+                      {canDelete && (
                       <Btn
                         size="sm"
                         variant="dangerSolid"
@@ -661,6 +761,7 @@ function PatientsTab({ showToast }) {
                       >
                         Delete
                       </Btn>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -718,7 +819,7 @@ function PatientsTab({ showToast }) {
             <>
               <SectionLabel>Doctor Assignment</SectionLabel>
               <div style={{ display: "grid", gap: 14 }}>
-                <Input label="Assign Doctor" value={form.assignedDoctor || ""} onChange={v => setForm(f => ({ ...f, assignedDoctor: v }))} options={doctors.map(d => ({ value: d.id, label: `${d.name} — ${d.department}` }))} required hint="Responsible for reviewing AI predictions for this patient" />
+                <Input label="Assign Doctor" value={form.assignedDoctor || ""} onChange={v => setForm(f => ({ ...f, assignedDoctor: v }))} options={doctors.map(d => ({ value: d.name, label: `${d.name} — ${d.department || "Ophthalmology"}` }))} required hint="Doctor name stored for backend access control" />
                 <Input label="Patient Status" value={form.status || "active"} onChange={v => setForm(f => ({ ...f, status: v }))} options={["active", "inactive"]} />
               </div>
               <div style={{ marginTop: 16, padding: "14px 16px", background: "#f0f9ff", border: "1.5px solid #bae6fd", borderRadius: 10 }}>
@@ -756,7 +857,7 @@ function PatientsTab({ showToast }) {
             <Input label="HbA1c (%)"      value={form.hba1c         || ""} onChange={v => setForm(f => ({ ...f, hba1c: v }))}          type="number" />
             <Input label="Diagnosed Year" value={form.diagnosedYear || ""} onChange={v => setForm(f => ({ ...f, diagnosedYear: v }))}  type="number" />
             <Input label="Referral"       value={form.referral      || ""} onChange={v => setForm(f => ({ ...f, referral: v }))}       options={["Self", "Referred", "Doctor", "Hospital"]} />
-            <Input label="Assign Doctor"  value={form.assignedDoctor|| ""} onChange={v => setForm(f => ({ ...f, assignedDoctor: v }))} options={doctors.map(d => ({ value: d.id, label: d.name }))} />
+            <Input label="Assign Doctor"  value={form.assignedDoctor|| ""} onChange={v => setForm(f => ({ ...f, assignedDoctor: v }))} options={doctors.map(d => ({ value: d.name, label: d.name }))} />
             <Input label="Status"         value={form.status        || ""} onChange={v => setForm(f => ({ ...f, status: v }))}         options={["active", "inactive"]} />
             <Input label="Address"        value={form.address       || ""} onChange={v => setForm(f => ({ ...f, address: v }))}        style={{ gridColumn: "1/-1" }} />
           </div>
@@ -805,39 +906,48 @@ function PatientsTab({ showToast }) {
       {modal === "credentials" && selected && (
         <Modal title="Patient Login Credentials" onClose={() => setModal(null)} width={480}>
           <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#ecfdf5", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-              <Icon d={I.key} size={24} color="#059669" />
+            <div className="vadr-cred-hero-icon">
+              <Icon d={I.key} size={24} color="currentColor" />
             </div>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>Credentials Ready</div>
-            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Share with <b>{selected.name}</b> to access the Patient Portal</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "var(--vadr-text)" }}>Credentials Ready</div>
+            <div style={{ fontSize: 13, color: "var(--vadr-text-muted)", marginTop: 4 }}>
+              Share with <b>{selected.name}</b> to access the Patient Portal
+            </div>
           </div>
 
           {[
-            { label: "Patient ID",         value: selected.patientId,   key: "pid",  icon: "patient" },
-            { label: "Email (Username)",    value: selected.email,       key: "email",icon: "mail"    },
-            { label: "Temporary Password", value: selected.tempPassword, key: "pass", icon: "key"     },
+            { label: "Patient ID",         value: selected.patientId,   key: "pid",  icon: "patient", mono: true },
+            { label: "Email (Username)",    value: selected.email,       key: "email",icon: "mail",    mono: false },
+            { label: "Temporary Password", value: selected.tempPassword, key: "pass", icon: "key",     mono: true },
           ].map(c => (
-            <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "#f8fafc", borderRadius: 10, border: "1.5px solid #e5e7eb", marginBottom: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 8, background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Icon d={I[c.icon]} size={16} color="#1a56db" />
+            <div key={c.key} className="vadr-cred-row">
+              <div className="vadr-cred-row-icon">
+                <Icon d={I[c.icon]} size={16} color="currentColor" />
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase" }}>{c.label}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, fontFamily: c.key !== "email" ? "monospace" : "inherit", marginTop: 2 }}>{c.value}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="vadr-cred-row-label">{c.label}</div>
+                <div className={`vadr-cred-row-value${c.mono ? " vadr-cred-row-value--mono" : ""}`}>
+                  {c.value || "—"}
+                </div>
               </div>
-              <button onClick={() => copyText(c.value, c.key)} style={{ background: copied === c.key ? "#ecfdf5" : "#f3f4f6", border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600, color: copied === c.key ? "#059669" : "#374151", display: "flex", alignItems: "center", gap: 4 }}>
-                <Icon d={copied === c.key ? I.check : I.copy} size={12} color={copied === c.key ? "#059669" : "#374151"} />
+              <button
+                type="button"
+                onClick={() => copyText(c.value, c.key)}
+                className={`vadr-cred-copy-btn${copied === c.key ? " vadr-cred-copy-btn--copied" : ""}`}
+                disabled={!c.value}
+              >
+                <Icon d={copied === c.key ? I.check : I.copy} size={12} color="currentColor" />
                 {copied === c.key ? "Copied!" : "Copy"}
               </button>
             </div>
           ))}
 
-          <div style={{ padding: "12px 16px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10, fontSize: 12, color: "#92400e", marginTop: 4 }}>
+          <div className="vadr-cred-notice">
             <b>Important:</b> Ask patient to change their temporary password after first login.
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, flexWrap: "wrap", gap: 10 }}>
-            <span style={{ fontSize: 12, color: selected.credentialsSent ? "#059669" : "#d97706", fontWeight: 600 }}>
+            <span style={{ fontSize: 12, color: selected.credentialsSent ? "var(--vadr-success-text)" : "var(--vadr-warning-text)", fontWeight: 600 }}>
               {selected.credentialsSent ? "✓ Email marked as sent" : "⚠ Not yet sent to patient"}
             </span>
             <div style={{ display: "flex", gap: 10 }}>
@@ -912,9 +1022,12 @@ function UsersTab({ showToast }) {
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase();
+    const statusMatch = !filterStatus
+      || u.status === filterStatus
+      || (filterStatus === "inactive" && u.status === "suspended");
     return (!q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.department?.toLowerCase().includes(q))
       && (!filterRole   || u.role   === filterRole)
-      && (!filterStatus || u.status === filterStatus);
+      && statusMatch;
   });
 
   const openAdd  = () => { setForm({ name: "", email: "", phone: "", role: "doctor", department: "", status: "active" }); setModal("add"); };
@@ -991,7 +1104,7 @@ function UsersTab({ showToast }) {
       </div>
 
       {/* Toolbar */}
-      <div style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: "16px 20px", marginBottom: 16 }}>
+      <div className="vadr-surface vadr-surface-pad">
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
             <Icon d={I.search} size={14} color="#9ca3af" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
@@ -1002,7 +1115,7 @@ function UsersTab({ showToast }) {
             {ROLES.map(r => <option key={r} value={r}>{ROLE_PERMISSIONS[r]?.label}</option>)}
           </select>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, width: 130 }}>
-            <option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option>
+            <option value="">All Status</option><option value="active">Active</option><option value="inactive">Suspended</option>
           </select>
           <Btn icon="export" variant="secondary" onClick={() => exportCSV(filtered, "users.csv")}>Export CSV</Btn>
           <Btn icon="plus" onClick={openAdd}>Add User</Btn>
@@ -1010,7 +1123,7 @@ function UsersTab({ showToast }) {
       </div>
 
       {/* Table */}
-      <div style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, overflow: "hidden" }}>
+      <div className="vadr-surface vadr-surface-panel">
         <div style={{ padding: "14px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontWeight: 700, fontSize: 14 }}>Staff & User Accounts</span>
           <span style={{ fontSize: 12, color: "#9ca3af" }}>{filtered.length} of {users.length}</span>
@@ -1042,7 +1155,7 @@ function UsersTab({ showToast }) {
                       <Btn size="sm" variant="ghost" icon="eye"   onClick={() => openView(u)} />
                       <Btn size="sm" variant="ghost" icon="edit"  onClick={() => openEdit(u)} />
                       <Btn size="sm" variant={u.status === "active" ? "danger" : "success"} onClick={() => toggleStatus(u.id)}>
-                        {u.status === "active" ? "Deactivate" : "Activate"}
+                        {u.status === "active" ? "Suspend" : "Activate"}
                       </Btn>
                       <Btn size="sm" variant="danger" icon="trash" onClick={() => handleDelete(u.id)} />
                     </div>
@@ -1063,7 +1176,7 @@ function UsersTab({ showToast }) {
             <Input label="Phone"      value={form.phone      || ""} onChange={v => setForm(f => ({ ...f, phone: v }))} />
             <Input label="Role"       value={form.role       || ""} onChange={v => setForm(f => ({ ...f, role: v }))}       options={ROLES.map(r => ({ value: r, label: ROLE_PERMISSIONS[r]?.label || r }))} required />
             <Input label="Department" value={form.department || ""} onChange={v => setForm(f => ({ ...f, department: v }))} options={["Ophthalmology", "Imaging", "Administration", "Primary Care", "Research"]} />
-            <Input label="Status"     value={form.status     || ""} onChange={v => setForm(f => ({ ...f, status: v }))}     options={["active", "inactive"]} />
+            <Input label="Status"     value={form.status     || "active"} onChange={v => setForm(f => ({ ...f, status: v }))}     options={["active", "suspended", "pending_approval"]} />
           </div>
           {form.role && (
             <div style={{ marginTop: 14, padding: "10px 14px", background: ROLE_PERMISSIONS[form.role]?.bg || "#f9fafb", borderRadius: 8 }}>
@@ -1109,32 +1222,272 @@ function UsersTab({ showToast }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// RBAC TAB
+// ADMIN APPROVALS TAB
 // ══════════════════════════════════════════════════════════════════════════════
-function RBACTab() {
-  const [activeRole, setActiveRole] = useState("admin");
-  const allRoles = ["admin", "doctor", "technician", "patient"];
+function ApprovalsTab({ showToast }) {
+  const [pending, setPending] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminAPI
+      .pendingDoctors()
+      .then((data) => setPending(Array.isArray(data) ? data : []))
+      .catch((e) => showToast(e.message, "error"))
+      .finally(() => setLoading(false));
+  }, [showToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const approve = async (userId) => {
+    setBusyId(userId);
+    try {
+      await adminAPI.approveDoctor(userId);
+      showToast("Doctor approved");
+      load();
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const reject = async (userId) => {
+    const reason = window.prompt("Rejection reason (optional):") || "";
+    setBusyId(userId);
+    try {
+      await adminAPI.rejectDoctor(userId, reason);
+      showToast("Doctor rejected");
+      load();
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800 }}>Roles & Permissions</h2>
-        <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>Full access control matrix for all roles in the VADR system.</p>
+      <div className="vadr-surface vadr-surface-pad" style={{ marginBottom: 16 }}>
+        <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>Pending doctor approvals</h2>
+        <p style={{ margin: 0, color: "#6b7280", fontSize: 13 }}>Review and approve doctor registrations before they can access patient data.</p>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
+      <div className="vadr-surface vadr-surface-panel">
+        {loading && <div style={{ padding: 24 }}>Loading…</div>}
+        {!loading && pending.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>No pending doctor accounts</div>
+        )}
+        {!loading && pending.map((doc) => (
+          <div key={doc.id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", borderBottom: "1px solid #f3f4f6" }}>
+            <Avatar name={doc.name} color="#0694a2" />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700 }}>{doc.name}</div>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>{doc.email} · {doc.department || "Ophthalmology"}</div>
+            </div>
+            <StatusDot status={doc.status} />
+            <Btn loading={busyId === doc.id} variant="success" onClick={() => approve(doc.id)}>Approve</Btn>
+            <Btn loading={busyId === doc.id} variant="danger" onClick={() => reject(doc.id)}>Reject</Btn>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RBAC TAB — admin-only editable permission matrix
+// ══════════════════════════════════════════════════════════════════════════════
+function cloneMatrix(m) {
+  return Object.fromEntries(
+    Object.entries(m).map(([perm, roles]) => [perm, { ...roles }])
+  );
+}
+
+function isPermissionLocked(perm, role) {
+  return role === "admin" && ADMIN_LOCKED_PERMS.includes(perm);
+}
+
+function PermissionToggle({ on, onChange, disabled, label }) {
+  return (
+    <button
+      type="button"
+      className={`vadr-rbac-toggle ${on ? "vadr-rbac-toggle--on" : "vadr-rbac-toggle--off"}`}
+      onClick={() => onChange(!on)}
+      disabled={disabled}
+      aria-pressed={on}
+      aria-label={label}
+      title={disabled ? "Required for Admin" : on ? "Revoke" : "Grant"}
+    >
+      <span className="vadr-rbac-toggle-knob" />
+    </button>
+  );
+}
+
+function RBACTab({ showToast }) {
+  const allRoles = ["admin", "doctor", "screener", "patient"];
+  const [activeRole, setActiveRole] = useState("admin");
+  const [matrix, setMatrix] = useState(() => cloneMatrix(DEFAULT_PERMISSION_MATRIX));
+  const [savedMatrix, setSavedMatrix] = useState(() => cloneMatrix(DEFAULT_PERMISSION_MATRIX));
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [meta, setMeta] = useState(null);
+  const [filter, setFilter] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await adminAPI.getPermissions();
+      const m = cloneMatrix(data.matrix || DEFAULT_PERMISSION_MATRIX);
+      setMatrix(m);
+      setSavedMatrix(cloneMatrix(m));
+      setMeta(data.meta || null);
+    } catch (err) {
+      showToast(err.message || "Could not load permissions", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const isDirty = JSON.stringify(matrix) !== JSON.stringify(savedMatrix);
+
+  const toggle = (perm, role) => {
+    if (isPermissionLocked(perm, role)) return;
+    setMatrix((prev) => ({
+      ...prev,
+      [perm]: { ...prev[perm], [role]: !prev[perm][role] },
+    }));
+  };
+
+  const setAllForRole = (role, value) => {
+    setMatrix((prev) => {
+      const next = cloneMatrix(prev);
+      Object.keys(next).forEach((perm) => {
+        if (!isPermissionLocked(perm, role)) next[perm][role] = value;
+      });
+      return next;
+    });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const data = await adminAPI.updatePermissions(matrix);
+      const m = cloneMatrix(data.matrix || matrix);
+      setMatrix(m);
+      setSavedMatrix(cloneMatrix(m));
+      setMeta(data.meta || null);
+      showToast("Permissions saved");
+    } catch (err) {
+      showToast(err.message || "Save failed", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const discard = () => {
+    setMatrix(cloneMatrix(savedMatrix));
+    showToast("Changes discarded", "info");
+  };
+
+  const resetDefaults = async () => {
+    if (!window.confirm("Reset all roles to factory defaults? This cannot be undone.")) return;
+    setSaving(true);
+    try {
+      const data = await adminAPI.resetPermissions();
+      const m = cloneMatrix(data.matrix || DEFAULT_PERMISSION_MATRIX);
+      setMatrix(m);
+      setSavedMatrix(cloneMatrix(m));
+      setMeta(data.meta || null);
+      showToast("Permissions reset to defaults");
+    } catch (err) {
+      showToast(err.message || "Reset failed", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const perms = Object.keys(matrix).filter(
+    (p) => !filter.trim() || p.toLowerCase().includes(filter.toLowerCase())
+  );
+  const activeConf = ROLE_PERMISSIONS[activeRole];
+  const grantedCount = Object.values(matrix).filter((r) => r[activeRole]).length;
+
+  return (
+    <div className="vadr-panel">
+      <div className="vadr-rbac-header">
+        <div>
+          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800, color: "var(--vadr-text)" }}>Roles & Permissions</h2>
+          <p style={{ margin: 0, fontSize: 13, color: "var(--vadr-text-muted)" }}>
+            Configure what each role can do. Only administrators can edit this matrix.
+          </p>
+          {meta?.updated_at && (
+            <p className="vadr-rbac-meta">
+              Last saved: {new Date(meta.updated_at).toLocaleString()}
+            </p>
+          )}
+        </div>
+        <div className="vadr-rbac-actions">
+          <Btn variant="secondary" icon="close" onClick={discard} disabled={!isDirty || saving || loading}>
+            Discard
+          </Btn>
+          <Btn variant="warning" onClick={resetDefaults} disabled={saving || loading}>
+            Reset defaults
+          </Btn>
+          <Btn icon="check" onClick={save} loading={saving} disabled={!isDirty || loading}>
+            Save changes
+          </Btn>
+        </div>
+      </div>
+
+      {isDirty && (
+        <div className="vadr-rbac-unsaved">
+          <Icon d={I.warning} size={14} color="#d97706" />
+          You have unsaved permission changes
+        </div>
+      )}
+
+      <div className="vadr-rbac-layout">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {allRoles.map(role => {
+          {allRoles.map((role) => {
             const conf = ROLE_PERMISSIONS[role];
+            const count = Object.values(matrix).filter((r) => r[role]).length;
             return (
-              <button key={role} onClick={() => setActiveRole(role)}
-                style={{ background: activeRole === role ? conf.bg : "#fff", border: activeRole === role ? `2px solid ${conf.color}` : "1.5px solid #e5e7eb", borderRadius: 12, padding: "14px 16px", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+              <button
+                key={role}
+                type="button"
+                onClick={() => setActiveRole(role)}
+                className={`vadr-rbac-role-btn${activeRole === role ? " vadr-rbac-role-btn--active" : ""}`}
+                style={
+                  activeRole === role
+                    ? { background: conf.bg, borderColor: conf.color }
+                    : undefined
+                }
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: activeRole === role ? `${conf.color}20` : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Icon d={I.shield} size={15} color={activeRole === role ? conf.color : "#9ca3af"} />
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background: activeRole === role ? `${conf.color}22` : "#f1f5f9",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Icon d={I.shield} size={16} color={activeRole === role ? conf.color : "#94a3b8"} />
                   </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: activeRole === role ? conf.color : "#111827" }}>{conf.label}</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>{conf.desc}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: activeRole === role ? conf.color : "#111827" }}>
+                      {conf.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#94a3b8" }}>{conf.desc}</div>
+                    <div style={{ fontSize: 10, color: conf.color, fontWeight: 700, marginTop: 4 }}>
+                      {count} / {Object.keys(matrix).length} permissions
+                    </div>
                   </div>
                 </div>
               </button>
@@ -1142,49 +1495,111 @@ function RBACTab() {
           })}
         </div>
 
-        <div style={{ background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, overflow: "hidden" }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: ROLE_PERMISSIONS[activeRole]?.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon d={I.shield} size={18} color={ROLE_PERMISSIONS[activeRole]?.color} />
+        <div className="vadr-rbac-panel">
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: activeConf?.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon d={I.shield} size={18} color={activeConf?.color} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>Permission matrix</div>
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                  Toggle switches to grant or revoke access — column highlight: {activeConf?.label}
+                </div>
+              </div>
             </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{ROLE_PERMISSIONS[activeRole]?.label} Permissions</div>
-              <div style={{ fontSize: 12, color: "#9ca3af" }}>{ROLE_PERMISSIONS[activeRole]?.desc}</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn size="sm" variant="success" onClick={() => setAllForRole(activeRole, true)} disabled={loading}>
+                Grant all ({activeConf?.label})
+              </Btn>
+              <Btn size="sm" variant="danger" onClick={() => setAllForRole(activeRole, false)} disabled={loading || activeRole === "admin"}>
+                Revoke all ({activeConf?.label})
+              </Btn>
             </div>
           </div>
-          <div style={{ overflowX: "auto" }}>
+
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid #f3f4f6" }}>
+            <div style={{ position: "relative", maxWidth: 320 }}>
+              <Icon d={I.search} size={14} color="#94a3b8" style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filter permissions…"
+                style={{ ...inputStyle, paddingLeft: 34 }}
+              />
+            </div>
+          </div>
+
+          <div style={{ overflowX: "auto" }} className="vadr-table-wrap">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#f9fafb" }}>
-                  <th style={{ ...thStyle }}>Permission</th>
-                  {allRoles.map(r => (
-                    <th key={r} style={{ ...thStyle, textAlign: "center", color: r === activeRole ? ROLE_PERMISSIONS[r].color : "#6b7280", background: r === activeRole ? `${ROLE_PERMISSIONS[r].color}08` : "#f9fafb" }}>
+                  <th style={{ ...thStyle, minWidth: 200 }}>Permission</th>
+                  {allRoles.map((r) => (
+                    <th
+                      key={r}
+                      style={{
+                        ...thStyle,
+                        textAlign: "center",
+                        minWidth: 100,
+                        color: r === activeRole ? ROLE_PERMISSIONS[r].color : "#6b7280",
+                        background: r === activeRole ? `${ROLE_PERMISSIONS[r].color}10` : "#f9fafb",
+                      }}
+                    >
                       {ROLE_PERMISSIONS[r].label}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(PERMISSION_MATRIX).map(([perm, roles]) => (
-                  <tr key={perm} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                    <td style={{ ...tdStyle, fontWeight: 500, color: "#374151" }}>{perm}</td>
-                    {allRoles.map(r => (
-                      <td key={r} style={{ ...tdStyle, textAlign: "center", background: r === activeRole ? `${ROLE_PERMISSIONS[r].color}05` : "transparent" }}>
-                        {roles[r]
-                          ? <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: "50%", background: "#ecfdf5" }}><Icon d={I.check} size={13} color="#059669" /></div>
-                          : <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: "50%", background: "#fef2f2" }}><Icon d={I.close} size={12} color="#dc2626" /></div>
-                        }
-                      </td>
-                    ))}
+                {loading && [1, 2, 3, 4, 5].map((i) => <SkeletonRow key={i} cols={5} />)}
+                {!loading && perms.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 32, textAlign: "center", color: "#94a3b8" }}>
+                      No permissions match your filter
+                    </td>
+                  </tr>
+                )}
+                {!loading && perms.map((perm) => (
+                  <tr key={perm} className="vadr-rbac-row">
+                    <td style={{ ...tdStyle, fontWeight: 500, color: "#334155" }}>
+                      {perm}
+                      {ADMIN_LOCKED_PERMS.includes(perm) && (
+                        <span style={{ marginLeft: 8, fontSize: 10, color: "#94a3b8", fontWeight: 600 }}>· admin locked</span>
+                      )}
+                    </td>
+                    {allRoles.map((r) => {
+                      const on = matrix[perm]?.[r];
+                      const locked = isPermissionLocked(perm, r);
+                      return (
+                        <td
+                          key={r}
+                          style={{
+                            ...tdStyle,
+                            textAlign: "center",
+                            background: r === activeRole ? `${ROLE_PERMISSIONS[r].color}06` : "transparent",
+                          }}
+                        >
+                          <PermissionToggle
+                            on={on}
+                            onChange={() => toggle(perm, r)}
+                            disabled={locked || loading || saving}
+                            label={`${perm} for ${r}`}
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div style={{ padding: "14px 20px", background: `${ROLE_PERMISSIONS[activeRole]?.color}08`, borderTop: "1px solid #f3f4f6" }}>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>
-              <b style={{ color: ROLE_PERMISSIONS[activeRole]?.color }}>{ROLE_PERMISSIONS[activeRole]?.label}</b> has access to{" "}
-              <b>{Object.values(PERMISSION_MATRIX).filter(r => r[activeRole]).length}</b> of {Object.keys(PERMISSION_MATRIX).length} permissions.
+
+          <div style={{ padding: "14px 20px", background: `${activeConf?.color}08`, borderTop: "1px solid #f3f4f6" }}>
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              <b style={{ color: activeConf?.color }}>{activeConf?.label}</b> has{" "}
+              <b>{grantedCount}</b> of {Object.keys(matrix).length} permissions enabled.
+              {activeRole === "admin" && " Core admin permissions cannot be revoked."}
             </span>
           </div>
         </div>
