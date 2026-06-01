@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { medicalHistoryAPI, patientAPI } from "../../shared/api";
+import { getStoredUser, medicalHistoryAPI, patientAPI } from "../../shared/api";
 
 const inputStyle = {
   border: "1.5px solid #e5e7eb",
@@ -214,6 +214,8 @@ function toPrintWindowHtml(patient, history) {
 export default function MedicalHistoryManagementPage() {
   const { patientId } = useParams();
   const navigate = useNavigate();
+  const sessionUser = getStoredUser();
+  const isPatientUser = sessionUser?.role === "patient";
   const [patients, setPatients] = useState([]);
   const [selectedPatientId, setSelectedPatientId] = useState(patientId || "");
   const [history, setHistory] = useState(emptyHistory);
@@ -230,11 +232,15 @@ export default function MedicalHistoryManagementPage() {
   );
 
   useEffect(() => {
+    if (isPatientUser && patientId) {
+      patientAPI.getOne(patientId).then((p) => setPatients(p ? [p] : [])).catch(() => setPatients([]));
+      return;
+    }
     patientAPI.getAll().then((data) => {
-      setPatients(data);
+      setPatients(Array.isArray(data) ? data : []);
       if (!selectedPatientId && data.length) setSelectedPatientId(data[0].patientId);
-    });
-  }, [selectedPatientId]);
+    }).catch(() => setPatients([]));
+  }, [selectedPatientId, isPatientUser, patientId]);
 
   useEffect(() => {
     if (!selectedPatientId) return;

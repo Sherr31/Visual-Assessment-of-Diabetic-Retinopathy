@@ -1,0 +1,368 @@
+/* VADR auth pages — login & register */
+
+.vadr-auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: "DM Sans", "Segoe UI", sans-serif;
+  position: relative;
+  overflow: hidden;
+  background: var(--vadr-auth-bg);
+  color: var(--vadr-text);
+}
+
+.vadr-auth-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: vadrBlobFloat 18s ease-in-out infinite;
+}
+
+.vadr-auth-blob--1 {
+  width: 320px;
+  height: 320px;
+  background: rgba(26, 86, 219, 0.25);
+  top: -80px;
+  left: -60px;
+}
+
+.vadr-auth-blob--2 {
+  width: 280px;
+  height: 280px;
+  background: rgba(6, 148, 162, 0.2);
+  bottom: -60px;
+  right: -40px;
+  animation-delay: -6s;
+}
+
+.vadr-auth-blob--3 {
+  width: 200px;
+  height: 200px;
+  background: rgba(124, 58, 237, 0.15);
+  top: 40%;
+  right: 15%;
+  animation-delay: -12s;
+}
+
+.vadr-auth-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  background: var(--vadr-auth-card);
+  backdrop-filter: blur(16px);
+  border-radius: 20px;
+  padding: 36px 32px 32px;
+  border: 1px solid var(--vadr-auth-card-border);
+  box-shadow: 0 4px 6px var(--vadr-shadow), 0 24px 48px var(--vadr-shadow-lg);
+  animation: vadrAuthCardIn 0.55s cubic-bezier(0.34, 1.2, 0.64, 1);
+  color: var(--vadr-text);
+}
+
+.vadr-auth-brand {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.vadr-auth-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1a56db, #0694a2);
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(26, 86, 219, 0.35);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.vadr-auth-card:hover .vadr-auth-logo {
+  transform: scale(1.04) rotate(-3deg);
+  box-shadow: 0 12px 28px rgba(26, 86, 219, 0.4);
+}
+
+.vadr-auth-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: var(--vadr-brand-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.vadr-auth-tagline {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--vadr-text-muted);
+  line-height: 1.45;
+}
+
+.vadr-auth-field {
+  margin-bottom: 18px;
+}
+
+.vadr-auth-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vadr-text-secondary);
+  margin-bottom: 6px;
+  transition: color 0.2s;
+}
+
+.vadr-auth-field:focus-within .vadr-auth-label {
+  color: var(--vadr-primary);
+}
+
+.vadr-auth-input-wrap {
+  position: relative;
+}
+
+.vadr-auth-input:not(.vadr-auth-input--no-toggle) {
+  padding-right: 44px;
+}
+
+.vadr-auth-input--no-toggle {
+  padding-right: 14px;
+}
+
+.vadr-auth-input {
+  width: 100%;
+  padding: 12px 14px;
+  padding-right: 44px;
+  border-radius: 12px;
+  border: 1.5px solid var(--vadr-border-strong);
+  font-size: 14px;
+  box-sizing: border-box;
+  font-family: inherit;
+  background: var(--vadr-input-bg);
+  color: var(--vadr-text);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.vadr-auth-input:focus {
+  outline: none;
+  border-color: var(--vadr-primary);
+  box-shadow: 0 0 0 4px var(--vadr-focus-ring);
+  transform: translateY(-1px);
+}
+
+.vadr-auth-input::placeholder {
+  color: var(--vadr-text-faint);
+}
+
+.vadr-auth-toggle-pw {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--vadr-text-faint);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background 0.2s;
+}
+
+.vadr-auth-toggle-pw:hover {
+  color: var(--vadr-primary);
+  background: var(--vadr-primary-soft);
+}
+
+.vadr-auth-error {
+  background: var(--vadr-error-bg);
+  color: var(--vadr-error-text);
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  border: 1px solid var(--vadr-error-border);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  animation: vadrAuthShake 0.45s ease;
+}
+
+.vadr-auth-submit {
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, #1a56db, #1d4ed8);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+  box-shadow: 0 4px 14px rgba(26, 86, 219, 0.35);
+}
+
+.vadr-auth-submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(26, 86, 219, 0.4);
+}
+
+.vadr-auth-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.vadr-auth-submit:disabled {
+  opacity: 0.75;
+  cursor: wait;
+  transform: none;
+}
+
+.vadr-auth-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.vadr-auth-footer {
+  text-align: center;
+  margin-top: 22px;
+  font-size: 13px;
+  color: var(--vadr-text-muted);
+}
+
+.vadr-auth-footer a {
+  color: var(--vadr-primary);
+  font-weight: 700;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.vadr-auth-footer a:hover {
+  color: var(--vadr-primary-hover);
+  text-decoration: underline;
+}
+
+.vadr-auth-info {
+  background: var(--vadr-info-bg);
+  color: var(--vadr-info-text);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  border: 1px solid var(--vadr-info-border);
+}
+
+.vadr-auth-demo {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--vadr-border);
+}
+
+.vadr-auth-demo-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--vadr-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.vadr-auth-demo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.vadr-auth-demo-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--vadr-border-strong);
+  background: var(--vadr-surface-muted);
+  color: var(--vadr-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.vadr-auth-demo-chip:hover {
+  background: var(--vadr-primary-soft);
+  border-color: var(--vadr-primary-border);
+  color: var(--vadr-primary);
+  transform: translateY(-1px);
+}
+
+.vadr-auth-features {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.vadr-auth-feature {
+  font-size: 11px;
+  color: var(--vadr-text-faint);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.vadr-auth-feature-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: vadrPulse 2s ease infinite;
+}
+
+@keyframes vadrAuthCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vadrAuthShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes vadrBlobFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -20px) scale(1.05); }
+  66% { transform: translate(-20px, 15px) scale(0.95); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes vadrPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

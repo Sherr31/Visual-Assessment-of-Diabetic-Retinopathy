@@ -1,14 +1,14 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, request
 
 from .. import db
+from ..decorators import require_auth
+from ..responses import api_error, api_success
 from ..utils.common import gen_temp_password, serialize, today
 
 patients_bp = Blueprint("patients", __name__)
 
 
 def gen_patient_id() -> str:
-    # Generate monotonic IDs even if patients are deleted.
-    # Using count_documents() can reuse an old patientId after deletions.
     max_num = 0
     for doc in db.patients_col.find({}, {"patientId": 1}):
         pid = doc.get("patientId")
@@ -43,30 +43,52 @@ def _grade_score(grade: str) -> int:
     return mapping.get(grade, 0)
 
 
+def _doctor_filter(query: dict) -> dict:
+    """Doctors only see patients assigned to them."""
+    user = g.current_user
+    if user.get("role") == "doctor":
+        query["assignedDoctor"] = user.get("name")
+    return query
+
+
 @patients_bp.route("/", methods=["GET"])
+@require_auth(roles=["admin", "doctor", "screener"])
 def get_patients():
-    patients = list(db.patients_col.find())
-    return jsonify([serialize(p) for p in patients]), 200
+    """List patients visible to the current role."""
+    query = _doctor_filter({})
+    patients = list(db.patients_col.find(query))
+    return api_success([serialize(p) for p in patients], message="Patients retrieved")
 
 
 @patients_bp.route("/<patient_id>", methods=["GET"])
+@require_auth(roles=["admin", "doctor", "screener", "patient"])
 def get_patient(patient_id):
+    """Get a patient record with role-based access checks."""
     patient = db.patients_col.find_one({"patientId": patient_id})
     if not patient:
-        return jsonify({"error": "Patient not found"}), 404
-    return jsonify(serialize(patient)), 200
+        return api_error("Patient not found", status=404)
+
+    role = g.current_user.get("role")
+    if role == "doctor" and patient.get("assignedDoctor") != g.current_user.get("name"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
+    if role == "patient" and patient.get("email") != g.current_user.get("email"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
+
+    return api_success(serialize(patient))
 
 
 @patients_bp.route("/", methods=["POST"])
+@require_auth(roles=["admin", "doctor", "screener"])
 def register_patient():
+    """Register a new patient."""
     data = request.get_json() or {}
     required = ["name", "email", "phone", "assignedDoctor"]
     for field in required:
         if not data.get(field):
-            return jsonify({"error": f"{field} is required"}), 400
+            return api_error(f"{field} is required", status=400)
 
     if db.patients_col.find_one({"email": data["email"]}):
-        return jsonify({"error": "A patient with this email already exists"}), 409
+        return api_error("A patient with this email already exists", status=409)
 
     new_patient = {
         "patientId": gen_patient_id(),
@@ -90,75 +112,96 @@ def register_patient():
     }
     result = db.patients_col.insert_one(new_patient)
     new_patient["_id"] = str(result.inserted_id)
-    return jsonify(new_patient), 201
+    return api_success(new_patient, message="Patient registered", status=201)
 
 
 @patients_bp.route("/<patient_id>", methods=["PUT"])
+@require_auth(roles=["admin", "doctor"])
 def update_patient(patient_id):
+    """Update patient demographics and assignment."""
+    patient = db.patients_col.find_one({"patientId": patient_id})
+    if not patient:
+        return api_error("Patient not found", status=404)
+    if g.current_user.get("role") == "doctor" and patient.get("assignedDoctor") != g.current_user.get("name"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
+
     data = request.get_json() or {}
     data.pop("_id", None)
     data.pop("patientId", None)
-
-    result = db.patients_col.update_one({"patientId": patient_id}, {"$set": data})
-    if result.matched_count == 0:
-        return jsonify({"error": "Patient not found"}), 404
-
+    db.patients_col.update_one({"patientId": patient_id}, {"$set": data})
     updated = db.patients_col.find_one({"patientId": patient_id})
-    return jsonify(serialize(updated)), 200
+    return api_success(serialize(updated), message="Patient updated")
 
 
 @patients_bp.route("/<patient_id>/status", methods=["PATCH"])
+@require_auth(roles=["admin", "doctor"])
 def toggle_patient_status(patient_id):
+    """Toggle patient active/inactive status."""
     patient = db.patients_col.find_one({"patientId": patient_id})
     if not patient:
-        return jsonify({"error": "Patient not found"}), 404
+        return api_error("Patient not found", status=404)
+    if g.current_user.get("role") == "doctor" and patient.get("assignedDoctor") != g.current_user.get("name"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
 
     new_status = "inactive" if patient["status"] == "active" else "active"
     db.patients_col.update_one({"patientId": patient_id}, {"$set": {"status": new_status}})
-    return jsonify({"status": new_status}), 200
+    return api_success({"status": new_status}, message="Patient status updated")
 
 
 @patients_bp.route("/<patient_id>/send-credentials", methods=["PATCH"])
+@require_auth(roles=["admin", "doctor"])
 def send_credentials(patient_id):
+    """Mark patient portal credentials as sent."""
     patient = db.patients_col.find_one({"patientId": patient_id})
     if not patient:
-        return jsonify({"error": "Patient not found"}), 404
+        return api_error("Patient not found", status=404)
 
     db.patients_col.update_one(
         {"patientId": patient_id},
         {"$set": {"credentialsSent": True, "credentialsSentOn": today()}},
     )
-    return jsonify({"message": "Credentials marked as sent", "email": patient["email"]}), 200
+    return api_success({"email": patient["email"]}, message="Credentials marked as sent")
 
 
 @patients_bp.route("/<patient_id>", methods=["DELETE"])
+@require_auth(roles=["admin"])
 def delete_patient(patient_id):
+    """Permanently delete a patient record."""
     result = db.patients_col.delete_one({"patientId": patient_id})
     if result.deleted_count == 0:
-        return jsonify({"error": "Patient not found"}), 404
+        return api_error("Patient not found", status=404)
     db.medical_history_col.delete_one({"patientId": patient_id})
-    return jsonify({"message": "Patient deleted", "patientId": patient_id}), 200
+    return api_success({"patientId": patient_id}, message="Patient deleted")
 
 
 @patients_bp.route("/<patient_id>/medical-history", methods=["GET"])
+@require_auth(roles=["admin", "doctor", "patient"])
 def get_medical_history(patient_id):
+    """Get medical history for a patient."""
     patient = db.patients_col.find_one({"patientId": patient_id})
     if not patient:
-        return jsonify({"error": "Patient not found"}), 404
+        return api_error("Patient not found", status=404)
+    if g.current_user.get("role") == "doctor" and patient.get("assignedDoctor") != g.current_user.get("name"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
+    if g.current_user.get("role") == "patient" and patient.get("email") != g.current_user.get("email"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
 
     history = db.medical_history_col.find_one({"patientId": patient_id})
     if not history:
         db.medical_history_col.insert_one(_empty_medical_history(patient_id))
         history = db.medical_history_col.find_one({"patientId": patient_id})
-
-    return jsonify(serialize(history)), 200
+    return api_success(serialize(history))
 
 
 @patients_bp.route("/<patient_id>/medical-history", methods=["PUT"])
+@require_auth(roles=["admin", "doctor"])
 def upsert_medical_history(patient_id):
+    """Update medical history for a patient."""
     patient = db.patients_col.find_one({"patientId": patient_id})
     if not patient:
-        return jsonify({"error": "Patient not found"}), 404
+        return api_error("Patient not found", status=404)
+    if g.current_user.get("role") == "doctor" and patient.get("assignedDoctor") != g.current_user.get("name"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
 
     data = request.get_json() or {}
     payload = {
@@ -176,23 +219,27 @@ def upsert_medical_history(patient_id):
 
     history = db.medical_history_col.find_one({"patientId": patient_id})
     scans = history.get("scans", [])
-    scan_count = len(scans)
     last_scan = "—"
     if scans:
         last_scan = sorted(scans, key=lambda s: s.get("scanDate", ""), reverse=True)[0].get("scanDate", "—")
     db.patients_col.update_one(
         {"patientId": patient_id},
-        {"$set": {"scans": scan_count, "lastScan": last_scan}},
+        {"$set": {"scans": len(scans), "lastScan": last_scan}},
     )
-
-    return jsonify(serialize(history)), 200
+    return api_success(serialize(history), message="Medical history updated")
 
 
 @patients_bp.route("/<patient_id>/medical-history/export", methods=["GET"])
+@require_auth(roles=["admin", "doctor", "patient"])
 def export_medical_history(patient_id):
+    """Export patient medical history including DR trend."""
     patient = db.patients_col.find_one({"patientId": patient_id})
     if not patient:
-        return jsonify({"error": "Patient not found"}), 404
+        return api_error("Patient not found", status=404)
+    if g.current_user.get("role") == "doctor" and patient.get("assignedDoctor") != g.current_user.get("name"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
+    if g.current_user.get("role") == "patient" and patient.get("email") != g.current_user.get("email"):
+        return api_error("Forbidden", code="FORBIDDEN", status=403)
 
     history = db.medical_history_col.find_one({"patientId": patient_id}) or _empty_medical_history(patient_id)
     visits = sorted(history.get("visits", []), key=lambda v: v.get("visitDate", ""))
@@ -206,8 +253,7 @@ def export_medical_history(patient_id):
         }
         for visit in visits
     ]
-
-    return jsonify(
+    return api_success(
         {
             "patient": serialize(patient),
             "history": {
@@ -218,5 +264,6 @@ def export_medical_history(patient_id):
                 "drTrend": dr_trend,
                 "updatedAt": history.get("updatedAt", today()),
             },
-        }
-    ), 200
+        },
+        message="Medical history export",
+    )

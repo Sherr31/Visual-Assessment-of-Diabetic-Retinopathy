@@ -1,148 +1,190 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { authAPI, ApiError } from "./api";
+import { getHomeRoute } from "./lib/session";
+import "./vadr-auth.css";
+import ThemeToggle from "./components/ThemeToggle";
 
-const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const DEMO_ACCOUNTS = [
+  { label: "Admin", email: "admin@vadr.pk", password: "admin123" },
+];
+
+const EyeIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EyeOffIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+
+const EyeOnIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const AlertIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="8" x2="12" y2="12" />
+    <line x1="12" y1="16" x2="12.01" y2="16" />
+  </svg>
+);
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    document.title = "VADR — Sign in";
+    return () => { document.title = "VADR"; };
+  }, []);
+
+  const fillDemo = (account) => {
+    setEmail(account.email);
+    setPassword(account.password);
+    setErr("");
+  };
 
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
     setLoading(true);
     try {
-      const res = await fetch(`${API}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(data.error || "Login failed");
-        return;
-      }
-      localStorage.setItem("vadr_token", data.token);
-      localStorage.setItem("vadr_user", JSON.stringify(data.user));
-      navigate("/", { replace: true });
+      const data = await authAPI.login(email, password);
+      const user = data.user || JSON.parse(localStorage.getItem("vadr_user") || "null");
+      navigate(getHomeRoute(user), { replace: true });
+    } catch (error) {
+      setErr(error instanceof ApiError ? error.message : "Login failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const input = {
-    width: "100%",
-    padding: "12px 14px",
-    borderRadius: 10,
-    border: "1.5px solid #e5e7eb",
-    fontSize: 14,
-    boxSizing: "border-box",
-    fontFamily: "inherit",
-  };
-
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "linear-gradient(160deg, #f0f4ff 0%, #f8fafc 45%, #ecfeff 100%)",
-        fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
-        padding: 24,
-      }}
-    >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');`}</style>
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 400,
-          background: "#fff",
-          borderRadius: 16,
-          padding: "36px 32px",
-          boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.12)",
-          border: "1px solid #e5e7eb",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              background: "linear-gradient(135deg,#1a56db,#0694a2)",
-              margin: "0 auto 14px",
-            }}
-          />
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>VADR</h1>
-          <p style={{ margin: "8px 0 0", fontSize: 13, color: "#6b7280" }}>Sign in (flask-base–compatible hashing on the API)</p>
+    <div className="vadr-auth-page">
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
+      <div className="vadr-auth-theme-wrap">
+        <ThemeToggle iconOnly />
+      </div>
+
+      <div className="vadr-auth-blob vadr-auth-blob--1" aria-hidden />
+      <div className="vadr-auth-blob vadr-auth-blob--2" aria-hidden />
+      <div className="vadr-auth-blob vadr-auth-blob--3" aria-hidden />
+
+      <div className="vadr-auth-card">
+        <div className="vadr-auth-brand">
+          <div className="vadr-auth-logo">
+            <EyeIcon />
+          </div>
+          <h1 className="vadr-auth-title">VADR</h1>
+          <p className="vadr-auth-tagline">
+            Visual Assessment of Diabetic Retinopathy
+            <br />
+            Sign in to your clinical portal
+          </p>
         </div>
 
         <form onSubmit={submit}>
           {err && (
-            <div
-              style={{
-                background: "#fef2f2",
-                color: "#b91c1c",
-                padding: "10px 12px",
-                borderRadius: 8,
-                fontSize: 13,
-                marginBottom: 16,
-              }}
-            >
-              {err}
+            <div className="vadr-auth-error" role="alert">
+              <AlertIcon />
+              <span>{err}</span>
             </div>
           )}
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="username"
-            style={{ ...input, marginBottom: 16 }}
-          />
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-            style={{ ...input, marginBottom: 22 }}
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "12px",
-              borderRadius: 10,
-              border: "none",
-              background: loading ? "#93c5fd" : "#1a56db",
-              color: "#fff",
-              fontSize: 15,
-              fontWeight: 700,
-              cursor: loading ? "wait" : "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            {loading ? "Signing in…" : "Sign in"}
+
+          <div className="vadr-auth-field">
+            <label className="vadr-auth-label" htmlFor="login-email">Email</label>
+            <div className="vadr-auth-input-wrap">
+              <input
+                id="login-email"
+                type="email"
+                className="vadr-auth-input vadr-auth-input--no-toggle"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@hospital.pk"
+                required
+                autoComplete="username"
+              />
+            </div>
+          </div>
+
+          <div className="vadr-auth-field">
+            <label className="vadr-auth-label" htmlFor="login-password">Password</label>
+            <div className="vadr-auth-input-wrap">
+              <input
+                id="login-password"
+                type={showPassword ? "text" : "password"}
+                className="vadr-auth-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                className="vadr-auth-toggle-pw"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOffIcon /> : <EyeOnIcon />}
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" className="vadr-auth-submit" disabled={loading}>
+            {loading ? (
+              <>
+                <span className="vadr-auth-spinner" />
+                Signing in…
+              </>
+            ) : (
+              "Sign in"
+            )}
           </button>
         </form>
 
-        <p style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: "#6b7280" }}>
-          No account?{" "}
-          <Link to="/register" style={{ color: "#1a56db", fontWeight: 600 }}>
-            Register
-          </Link>
+        <p className="vadr-auth-footer">
+          No account? <Link to="/register">Create one</Link>
         </p>
-        <p style={{ textAlign: "center", marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
-          Demo (after seed): admin@vadr.pk / admin123
-        </p>
+
+        <div className="vadr-auth-demo">
+          <div className="vadr-auth-demo-label">Quick demo (after seed)</div>
+          <div className="vadr-auth-demo-chips">
+            {DEMO_ACCOUNTS.map((acc) => (
+              <button
+                key={acc.label}
+                type="button"
+                className="vadr-auth-demo-chip"
+                onClick={() => fillDemo(acc)}
+              >
+                {acc.label}: {acc.email}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="vadr-auth-features">
+          <span className="vadr-auth-feature">
+            <span className="vadr-auth-feature-dot" />
+            Secure JWT auth
+          </span>
+          <span className="vadr-auth-feature">Role-based access</span>
+        </div>
       </div>
     </div>
   );

@@ -5,10 +5,24 @@ import LoginPage from "./modules/p1-mid/auth/pages/LoginPage";
 import RegisterPage from "./modules/p1-mid/auth/pages/RegisterPage";
 import PatientUserManagementPage from "./modules/p1-mid/patient-user-management/pages/PatientUserManagementPage";
 import MedicalHistoryManagementPage from "./modules/p1-mid/medical-history-management/pages/MedicalHistoryManagementPage";
+import PendingApprovalPage from "./pages/PendingApprovalPage";
+import PatientRecordsPage from "./pages/PatientRecordsPage";
+import { getToken, getStoredUser } from "./api";
+import { canAccessStaffPortal, getHomeRoute } from "./lib/session";
 
-function Protected({ children }) {
-  const token = localStorage.getItem("vadr_token");
-  if (!token) return <Navigate to="/login" replace />;
+function RequireAuth({ children }) {
+  if (!getToken()) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function RequireStaff({ children }) {
+  const user = getStoredUser();
+  if (!getToken()) return <Navigate to="/login" replace />;
+  if (user?.role === "doctor" && user?.status === "pending_approval") {
+    return <Navigate to="/pending-approval" replace />;
+  }
+  if (user?.role === "patient") return <Navigate to="/my-records" replace />;
+  if (!canAccessStaffPortal(user)) return <Navigate to="/login" replace />;
   return children;
 }
 
@@ -19,30 +33,46 @@ function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route
+          path="/pending-approval"
+          element={
+            <RequireAuth>
+              <PendingApprovalPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/my-records"
+          element={
+            <RequireAuth>
+              <PatientRecordsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/doctor"
           element={
-            <Protected>
+            <RequireStaff>
               <DrDashboard />
-            </Protected>
+            </RequireStaff>
           }
         />
         <Route
           path="/"
           element={
-            <Protected>
+            <RequireStaff>
               <PatientUserManagementPage />
-            </Protected>
+            </RequireStaff>
           }
         />
         <Route
           path="/medical-history/:patientId"
           element={
-            <Protected>
+            <RequireAuth>
               <MedicalHistoryManagementPage />
-            </Protected>
+            </RequireAuth>
           }
         />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to={getHomeRoute()} replace />} />
       </Routes>
     </BrowserRouter>
   );

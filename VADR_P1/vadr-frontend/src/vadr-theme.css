@@ -1,0 +1,181 @@
+/* VADR light / dark theme tokens */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --vadr-bg: #f4f7fb;
+  --vadr-bg-gradient-1: rgba(26, 86, 219, 0.08);
+  --vadr-bg-gradient-2: rgba(6, 148, 162, 0.06);
+  --vadr-surface: #ffffff;
+  --vadr-surface-muted: #f9fafb;
+  --vadr-surface-hover: #f8fafc;
+  --vadr-border: #e5e7eb;
+  --vadr-border-strong: #e2e8f0;
+  --vadr-text: #111827;
+  --vadr-text-secondary: #374151;
+  --vadr-text-muted: #64748b;
+  --vadr-text-faint: #94a3b8;
+  --vadr-primary: #1a56db;
+  --vadr-primary-hover: #1d4ed8;
+  --vadr-primary-soft: #eff6ff;
+  --vadr-primary-border: #bfdbfe;
+  --vadr-header-bg: rgba(255, 255, 255, 0.85);
+  --vadr-input-bg: #ffffff;
+  --vadr-shadow: rgba(15, 23, 42, 0.08);
+  --vadr-shadow-lg: rgba(15, 23, 42, 0.12);
+  --vadr-modal-backdrop: rgba(15, 23, 42, 0.45);
+  --vadr-brand-sub-bg: #f1f5f9;
+  --vadr-scrollbar: #d1d5db;
+  --vadr-success-bg: #ecfdf5;
+  --vadr-success-border: #a7f3d0;
+  --vadr-success-text: #059669;
+  --vadr-error-bg: #fef2f2;
+  --vadr-error-border: #fecaca;
+  --vadr-error-text: #dc2626;
+  --vadr-warning-bg: #fffbeb;
+  --vadr-warning-border: #fde68a;
+  --vadr-warning-text: #92400e;
+  --vadr-info-bg: #eff6ff;
+  --vadr-info-border: #bfdbfe;
+  --vadr-info-text: #1e40af;
+  --vadr-auth-bg: linear-gradient(165deg, #eef2ff 0%, #f8fafc 40%, #ecfeff 100%);
+  --vadr-auth-card: rgba(255, 255, 255, 0.92);
+  --vadr-auth-card-border: rgba(255, 255, 255, 0.8);
+  --vadr-toggle-off: #e2e8f0;
+  --vadr-focus-ring: rgba(26, 86, 219, 0.12);
+  --vadr-btn-secondary-bg: #f3f4f6;
+  --vadr-btn-logout-bg: #f1f5f9;
+  --vadr-brand-gradient: linear-gradient(135deg, #1e3a8a, #0e7490);
+  --vadr-empty-icon-bg: linear-gradient(135deg, #eff6ff, #ecfeff);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --vadr-bg: #0b1120;
+  --vadr-bg-gradient-1: rgba(59, 130, 246, 0.12);
+  --vadr-bg-gradient-2: rgba(6, 182, 212, 0.08);
+  --vadr-surface: #151f32;
+  --vadr-surface-muted: #1a2744;
+  --vadr-surface-hover: #1e2d4a;
+  --vadr-border: #2a3a5c;
+  --vadr-border-strong: #334766;
+  --vadr-text: #f1f5f9;
+  --vadr-text-secondary: #cbd5e1;
+  --vadr-text-muted: #94a3b8;
+  --vadr-text-faint: #64748b;
+  --vadr-primary: #3b82f6;
+  --vadr-primary-hover: #60a5fa;
+  --vadr-primary-soft: #1e3a5f;
+  --vadr-primary-border: #3b5998;
+  --vadr-header-bg: rgba(15, 23, 42, 0.92);
+  --vadr-input-bg: #0f1729;
+  --vadr-shadow: rgba(0, 0, 0, 0.35);
+  --vadr-shadow-lg: rgba(0, 0, 0, 0.5);
+  --vadr-modal-backdrop: rgba(0, 0, 0, 0.65);
+  --vadr-brand-sub-bg: #1a2744;
+  --vadr-scrollbar: #475569;
+  --vadr-success-bg: #052e1a;
+  --vadr-success-border: #166534;
+  --vadr-success-text: #4ade80;
+  --vadr-error-bg: #3b1010;
+  --vadr-error-border: #7f1d1d;
+  --vadr-error-text: #fca5a5;
+  --vadr-warning-bg: #3b2f0a;
+  --vadr-warning-border: #854d0e;
+  --vadr-warning-text: #fcd34d;
+  --vadr-info-bg: #1e3a5f;
+  --vadr-info-border: #1d4ed8;
+  --vadr-info-text: #93c5fd;
+  --vadr-auth-bg: linear-gradient(165deg, #0b1120 0%, #111827 45%, #0c1929 100%);
+  --vadr-auth-card: rgba(21, 31, 50, 0.95);
+  --vadr-auth-card-border: rgba(42, 58, 92, 0.9);
+  --vadr-toggle-off: #334766;
+  --vadr-focus-ring: rgba(59, 130, 246, 0.25);
+  --vadr-btn-secondary-bg: #1a2744;
+  --vadr-btn-logout-bg: #1a2744;
+  --vadr-brand-gradient: linear-gradient(135deg, #93c5fd, #67e8f9);
+  --vadr-empty-icon-bg: linear-gradient(135deg, #1e3a5f, #164e63);
+}
+
+body {
+  margin: 0;
+  background: var(--vadr-bg);
+  color: var(--vadr-text);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+[data-theme="dark"] select option {
+  background: var(--vadr-surface);
+  color: var(--vadr-text);
+}
+
+/* Shared surfaces for dashboard inline panels */
+.vadr-surface {
+  background: var(--vadr-surface);
+  border: 1.5px solid var(--vadr-border);
+  color: var(--vadr-text);
+}
+
+.vadr-surface-pad {
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+}
+
+.vadr-surface-panel {
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.vadr-text-muted {
+  color: var(--vadr-text-muted);
+}
+
+.vadr-text-faint {
+  color: var(--vadr-text-faint);
+}
+
+.vadr-heading {
+  color: var(--vadr-text);
+}
+
+/* Theme toggle */
+.vadr-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--vadr-border);
+  background: var(--vadr-btn-logout-bg);
+  color: var(--vadr-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.vadr-theme-toggle:hover {
+  border-color: var(--vadr-primary-border);
+  color: var(--vadr-primary);
+  background: var(--vadr-primary-soft);
+}
+
+.vadr-theme-toggle--icon {
+  padding: 8px;
+  min-width: 36px;
+}
+
+.vadr-theme-toggle svg {
+  flex-shrink: 0;
+}
+
+.vadr-auth-theme-wrap {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 10;
+}

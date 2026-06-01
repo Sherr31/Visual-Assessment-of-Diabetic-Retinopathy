@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-
-const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+import { authAPI, ApiError, setSession } from "./api";
+import { getHomeRoute } from "./lib/session";
+import "./vadr-auth.css";
+import ThemeToggle from "./components/ThemeToggle";
 
 const ROLES = [
   { value: "doctor", label: "Doctor" },
-  { value: "technician", label: "Technician" },
-  { value: "admin", label: "Admin" },
+  { value: "screener", label: "Screener" },
+  { value: "patient", label: "Patient" },
 ];
 
 export default function RegisterPage() {
-  const [phase, setPhase] = useState("details"); // "details" | "verify"
+  const [phase, setPhase] = useState("details");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,31 +31,36 @@ export default function RegisterPage() {
     setInfo("");
     setLoading(true);
     try {
-      const res = await fetch(`${API}/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          role,
-          department: department.trim(),
-        }),
+      const data = await authAPI.register({
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        role,
+        department: department.trim(),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(data.error || "Registration failed");
+
+      if (data.verificationRequired) {
+        setInfo(
+          data.message ||
+            (data.emailSent === false
+              ? "Code could not be emailed — check server logs or use Resend code."
+              : "Check your inbox for a 6-digit code.")
+        );
+        setPhase("verify");
+        setCode("");
         return;
       }
-      let verifyMsg = data.emailSent
-        ? data.message || "Check your inbox for a 6-digit code."
-        : `${data.message || "Email could not be sent."} For local testing, set VADR_LOG_EMAIL_CODE=1 in .env and restart Flask, then check the terminal for the code.`;
-      if (!data.emailSent && data.emailError) {
-        verifyMsg += ` Server: ${data.emailError}`;
+
+      const token = data.access_token || data.token;
+      if (data.user && token) {
+        setSession({ accessToken: token, user: data.user });
+        navigate(getHomeRoute(data.user), { replace: true });
+        return;
       }
-      setInfo(verifyMsg);
-      setPhase("verify");
-      setCode("");
+
+      setErr("Unexpected registration response. Please try again or sign in.");
+    } catch (error) {
+      setErr(error instanceof ApiError ? error.message : "Registration failed");
     } finally {
       setLoading(false);
     }
@@ -64,19 +71,10 @@ export default function RegisterPage() {
     setErr("");
     setLoading(true);
     try {
-      const res = await fetch(`${API}/auth/verify-registration`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), code: code.replace(/\D/g, "").slice(0, 6) }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(data.error || "Verification failed");
-        return;
-      }
-      localStorage.setItem("vadr_token", data.token);
-      localStorage.setItem("vadr_user", JSON.stringify(data.user));
-      navigate("/", { replace: true });
+      const data = await authAPI.verifyRegistration(email, code);
+      navigate(getHomeRoute(data.user), { replace: true });
+    } catch (error) {
+      setErr(error instanceof ApiError ? error.message : "Verification failed");
     } finally {
       setLoading(false);
     }
@@ -86,219 +84,105 @@ export default function RegisterPage() {
     setErr("");
     setResendLoading(true);
     try {
-      const res = await fetch(`${API}/auth/resend-registration-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(data.error || "Could not resend");
-        return;
-      }
-      setInfo(
-        data.emailSent
-          ? "A new code has been sent."
-          : (data.message || "Email not sent — check SMTP or server logs (VADR_LOG_EMAIL_CODE=1).")
-      );
+      await authAPI.resendCode(email);
+      setInfo("A new code has been sent.");
+    } catch (error) {
+      setErr(error instanceof ApiError ? error.message : "Could not resend");
     } finally {
       setResendLoading(false);
     }
   };
 
-  const input = {
-    width: "100%",
-    padding: "12px 14px",
-    borderRadius: 10,
-    border: "1.5px solid #e5e7eb",
-    fontSize: 14,
-    boxSizing: "border-box",
-    fontFamily: "inherit",
-  };
-
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "linear-gradient(160deg, #f0f4ff 0%, #f8fafc 45%, #ecfeff 100%)",
-        fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
-        padding: 24,
-      }}
-    >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');`}</style>
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 420,
-          background: "#fff",
-          borderRadius: 16,
-          padding: "36px 32px",
-          boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.12)",
-          border: "1px solid #e5e7eb",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>
+    <div className="vadr-auth-page">
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
+      <div className="vadr-auth-theme-wrap">
+        <ThemeToggle iconOnly />
+      </div>
+      <div className="vadr-auth-blob vadr-auth-blob--1" aria-hidden />
+      <div className="vadr-auth-blob vadr-auth-blob--2" aria-hidden />
+
+      <div className="vadr-auth-card">
+        <div className="vadr-auth-brand">
+          <h1 className="vadr-auth-title" style={{ fontSize: 22 }}>
             {phase === "details" ? "Create account" : "Verify email"}
           </h1>
-          <p style={{ margin: "8px 0 0", fontSize: 13, color: "#6b7280" }}>
+          <p className="vadr-auth-tagline">
             {phase === "details"
-              ? "Staff registration for VADR"
+              ? "Register for VADR"
               : `Enter the 6-digit code sent to ${email.trim()}`}
           </p>
         </div>
 
-        {info && (
-          <div
-            style={{
-              background: "#eff6ff",
-              color: "#1e40af",
-              padding: "10px 12px",
-              borderRadius: 8,
-              fontSize: 13,
-              marginBottom: 16,
-              border: "1px solid #bfdbfe",
-            }}
-          >
-            {info}
-          </div>
-        )}
-        {err && (
-          <div
-            style={{
-              background: "#fef2f2",
-              color: "#b91c1c",
-              padding: "10px 12px",
-              borderRadius: 8,
-              fontSize: 13,
-              marginBottom: 16,
-            }}
-          >
-            {err}
-          </div>
-        )}
+        {info && <div className="vadr-auth-info">{info}</div>}
+        {err && <div className="vadr-auth-error">{err}</div>}
 
         {phase === "details" && (
           <form onSubmit={submitDetails}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Full name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required style={{ ...input, marginBottom: 14 }} />
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ ...input, marginBottom: 14 }} />
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} style={{ ...input, marginBottom: 14 }} />
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Role</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...input, marginBottom: 14 }}>
-              {ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Department (optional)</label>
-            <input value={department} onChange={(e) => setDepartment(e.target.value)} style={{ ...input, marginBottom: 22 }} />
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: 10,
-                border: "none",
-                background: loading ? "#93c5fd" : "#1a56db",
-                color: "#fff",
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: loading ? "wait" : "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              {loading ? "Sending code…" : "Send verification code"}
+            <div className="vadr-auth-field">
+              <label className="vadr-auth-label" htmlFor="reg-name">Full name</label>
+              <input id="reg-name" className="vadr-auth-input vadr-auth-input--no-toggle" value={name} onChange={(e) => setName(e.target.value)} required />
+            </div>
+            <div className="vadr-auth-field">
+              <label className="vadr-auth-label" htmlFor="reg-email">Email</label>
+              <input id="reg-email" type="email" className="vadr-auth-input vadr-auth-input--no-toggle" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            </div>
+            <div className="vadr-auth-field">
+              <label className="vadr-auth-label" htmlFor="reg-password">Password</label>
+              <input id="reg-password" type="password" className="vadr-auth-input vadr-auth-input--no-toggle" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+            </div>
+            <div className="vadr-auth-field">
+              <label className="vadr-auth-label" htmlFor="reg-role">Role</label>
+              <select id="reg-role" className="vadr-auth-input vadr-auth-input--no-toggle" value={role} onChange={(e) => setRole(e.target.value)}>
+                {ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="vadr-auth-field">
+              <label className="vadr-auth-label" htmlFor="reg-dept">Department (optional)</label>
+              <input id="reg-dept" className="vadr-auth-input vadr-auth-input--no-toggle" value={department} onChange={(e) => setDepartment(e.target.value)} />
+            </div>
+            <button type="submit" className="vadr-auth-submit" disabled={loading}>
+              {loading ? "Creating account…" : "Create account"}
             </button>
           </form>
         )}
 
         {phase === "verify" && (
           <form onSubmit={submitVerify}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>6-digit code</label>
-            <input
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]*"
-              maxLength={6}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              required
-              placeholder="000000"
-              style={{ ...input, marginBottom: 16, letterSpacing: "0.25em", fontSize: 18, textAlign: "center", fontWeight: 700 }}
-            />
-            <button
-              type="submit"
-              disabled={loading || code.length !== 6}
-              style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: 10,
-                border: "none",
-                background: loading || code.length !== 6 ? "#93c5fd" : "#1a56db",
-                color: "#fff",
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: loading || code.length !== 6 ? "not-allowed" : "pointer",
-                fontFamily: "inherit",
-                marginBottom: 12,
-              }}
-            >
+            <div className="vadr-auth-field">
+              <label className="vadr-auth-label" htmlFor="reg-code">6-digit code</label>
+              <input
+                id="reg-code"
+                className="vadr-auth-input vadr-auth-input--no-toggle"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+                placeholder="000000"
+                style={{ letterSpacing: "0.25em", fontSize: 18, textAlign: "center", fontWeight: 700 }}
+              />
+            </div>
+            <button type="submit" className="vadr-auth-submit" disabled={loading || code.length !== 6}>
               {loading ? "Verifying…" : "Verify and create account"}
             </button>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "space-between", alignItems: "center" }}>
-              <button
-                type="button"
-                onClick={resend}
-                disabled={resendLoading}
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#1a56db",
-                  background: "none",
-                  border: "none",
-                  cursor: resendLoading ? "wait" : "pointer",
-                  textDecoration: "underline",
-                  fontFamily: "inherit",
-                }}
-              >
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+              <button type="button" onClick={resend} disabled={resendLoading} style={{ fontSize: 13, fontWeight: 600, color: "var(--vadr-primary)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: "inherit" }}>
                 {resendLoading ? "Sending…" : "Resend code"}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPhase("details");
-                  setErr("");
-                  setInfo("");
-                  setCode("");
-                }}
-                style={{
-                  fontSize: 13,
-                  color: "#6b7280",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
+              <button type="button" onClick={() => { setPhase("details"); setErr(""); setInfo(""); setCode(""); }} style={{ fontSize: 13, color: "var(--vadr-text-muted)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
                 ← Edit details
               </button>
             </div>
           </form>
         )}
 
-        <p style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: "#6b7280" }}>
-          Already have an account?{" "}
-          <Link to="/login" style={{ color: "#1a56db", fontWeight: 600 }}>
-            Sign in
-          </Link>
+        <p className="vadr-auth-footer">
+          Already have an account? <Link to="/login">Sign in</Link>
         </p>
       </div>
     </div>
