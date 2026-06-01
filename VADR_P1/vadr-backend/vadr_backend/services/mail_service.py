@@ -118,6 +118,20 @@ def send_doctor_approval_email(to_email: str, display_name: str):
     return _send_email(to_email, "Your VADR doctor account has been approved", body)
 
 
+def send_password_reset_email(to_email: str, code: str, display_name: str):
+    log_code = os.environ.get("VADR_LOG_EMAIL_CODE", "").lower() in ("1", "true", "yes")
+    if log_code:
+        logging.getLogger("vadr.mail").warning("VADR password reset code for %s: %s", to_email, code)
+
+    body = (
+        f"Hi {display_name},\n\n"
+        f"Your VADR password reset code is: {code}\n\n"
+        f"This code expires in {settings.reg_code_expires_min} minutes.\n"
+        "If you did not request a password reset, you can ignore this email.\n"
+    )
+    return _send_email(to_email, "Reset your VADR password", body)
+
+
 def send_doctor_rejection_email(to_email: str, display_name: str, reason: str, reapply_days: int):
     body = (
         f"Hi {display_name},\n\n"

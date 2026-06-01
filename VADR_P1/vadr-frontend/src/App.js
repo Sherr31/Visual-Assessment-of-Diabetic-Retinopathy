@@ -3,6 +3,7 @@ import "./App.css";
 import DrDashboard from "./DrDashboard";
 import LoginPage from "./modules/p1-mid/auth/pages/LoginPage";
 import RegisterPage from "./modules/p1-mid/auth/pages/RegisterPage";
+import ForgotPasswordPage from "./modules/p1-mid/auth/pages/ForgotPasswordPage";
 import PatientUserManagementPage from "./modules/p1-mid/patient-user-management/pages/PatientUserManagementPage";
 import MedicalHistoryManagementPage from "./modules/p1-mid/medical-history-management/pages/MedicalHistoryManagementPage";
 import PendingApprovalPage from "./pages/PendingApprovalPage";
@@ -32,6 +33,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route
           path="/pending-approval"
           element={

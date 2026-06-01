@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { authAPI, ApiError } from "./api";
 import { getHomeRoute } from "./lib/session";
 import "./vadr-auth.css";
@@ -45,12 +45,21 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [info, setInfo] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     document.title = "VADR — Sign in";
     return () => { document.title = "VADR"; };
   }, []);
+
+  useEffect(() => {
+    if (location.state?.message) {
+      setInfo(location.state.message);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location, navigate]);
 
   const fillDemo = (account) => {
     setEmail(account.email);
@@ -98,6 +107,7 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={submit}>
+          {info && <div className="vadr-auth-info">{info}</div>}
           {err && (
             <div className="vadr-auth-error" role="alert">
               <AlertIcon />
@@ -144,6 +154,9 @@ export default function LoginPage() {
                 {showPassword ? <EyeOffIcon /> : <EyeOnIcon />}
               </button>
             </div>
+            <Link to="/forgot-password" className="vadr-auth-forgot">
+              Forgot password?
+            </Link>
           </div>
 
           <button type="submit" className="vadr-auth-submit" disabled={loading}>

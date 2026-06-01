@@ -22,7 +22,7 @@ from ..services.auth_service import (
     touch_session,
     validate_refresh_token,
 )
-from ..services.mail_service import send_registration_verification_email
+from ..services.mail_service import send_password_reset_email, send_registration_verification_email
 from ..services.token_service import issue_access_token
 from ..utils.common import gen_registration_code, gen_user_id, hash_password, serialize, today, utcnow_naive, verify_password
 from ..utils.request_context import client_ip, device_fingerprint, user_agent
@@ -299,6 +299,162 @@ def auth_resend_registration_code():
         {"emailSent": ok, **({"emailError": err} if err and not ok else {})},
         message="A new code has been sent." if ok else "Could not send email.",
     )
+
+
+def _generic_reset_response(email_sent: bool = True, email_error: str | None = None):
+    payload = {
+        "verificationRequired": True,
+        "emailSent": email_sent,
+    }
+    if email_error and not email_sent:
+        payload["emailError"] = email_error
+    return api_success(
+        payload,
+        message="If an account exists for this email, we sent a 6-digit reset code.",
+    )
+
+
+@auth_bp.route("/forgot-password", methods=["POST"])
+def auth_forgot_password():
+    """Request a password reset code (same response whether or not the email is registered)."""
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return api_error("email is required", status=400)
+
+    user = db.users_col.find_one({"email": email})
+    if not user or not user.get("password_hash"):
+        log_event("password_reset_requested", ip_address=client_ip(), user_agent=user_agent(), metadata={"email": email, "found": False})
+        return _generic_reset_response()
+
+    db.verification_codes_col.delete_many({"email": email, "type": "password_reset", "used": False})
+    code = gen_registration_code()
+    code_hash = hash_password(code)
+    expires_at = utcnow_naive() + timedelta(minutes=settings.reg_code_expires_min)
+    now = utcnow_naive()
+
+    db.verification_codes_col.insert_one(
+        {
+            "email": email,
+            "user_id": user["id"],
+            "code_hash": code_hash,
+            "type": "password_reset",
+            "expires_at": expires_at,
+            "used": False,
+            "verify_failures": 0,
+            "resend_timestamps": [now],
+            "created_at": now,
+        }
+    )
+
+    ok, err = send_password_reset_email(email, code, user.get("name", ""))
+    log_event(
+        "password_reset_requested",
+        user_id=user.get("id"),
+        role=user.get("role"),
+        ip_address=client_ip(),
+        user_agent=user_agent(),
+        metadata={"email": email, "email_sent": ok},
+    )
+    return _generic_reset_response(email_sent=ok, email_error=err)
+
+
+@auth_bp.route("/resend-password-reset-code", methods=["POST"])
+def auth_resend_password_reset_code():
+    """Resend password reset code for a pending reset request."""
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return api_error("email is required", status=400)
+
+    doc = db.verification_codes_col.find_one({"email": email, "type": "password_reset", "used": False})
+    if not doc:
+        return _generic_reset_response()
+
+    if doc["expires_at"] < utcnow_naive():
+        db.verification_codes_col.delete_one({"_id": doc["_id"]})
+        return api_error("Reset code expired. Request a new code.", status=410)
+
+    user = db.users_col.find_one({"email": email})
+    if not user:
+        db.verification_codes_col.delete_one({"_id": doc["_id"]})
+        return _generic_reset_response()
+
+    code = gen_registration_code()
+    code_hash = hash_password(code)
+    expires_at = utcnow_naive() + timedelta(minutes=settings.reg_code_expires_min)
+    now = utcnow_naive()
+    sends = doc.get("resend_timestamps") or []
+    sends.append(now)
+
+    db.verification_codes_col.update_one(
+        {"_id": doc["_id"]},
+        {
+            "$set": {
+                "code_hash": code_hash,
+                "expires_at": expires_at,
+                "verify_failures": 0,
+                "resend_timestamps": sends,
+            }
+        },
+    )
+
+    ok, err = send_password_reset_email(email, code, user.get("name", ""))
+    return api_success(
+        {"emailSent": ok, **({"emailError": err} if err and not ok else {})},
+        message="A new code has been sent." if ok else "Could not send email.",
+    )
+
+
+@auth_bp.route("/reset-password", methods=["POST"])
+def auth_reset_password():
+    """Complete password reset with email, 6-digit code, and new password."""
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    code = (data.get("code") or "").strip().replace(" ", "")
+    password = data.get("password") or ""
+    if not email or not code or not password:
+        return api_error("email, code, and password are required", status=400)
+    if len(password) < 6:
+        return api_error("password must be at least 6 characters", status=400)
+    if not code.isdigit() or len(code) != 6:
+        return api_error("code must be a 6-digit number", status=400)
+
+    doc = db.verification_codes_col.find_one({"email": email, "type": "password_reset", "used": False})
+    if not doc:
+        return api_error("No active reset request for this email. Request a new code.", status=404)
+
+    if doc["expires_at"] < utcnow_naive():
+        db.verification_codes_col.delete_one({"_id": doc["_id"]})
+        return api_error("Reset code expired. Request a new code.", status=410)
+
+    fails = doc.get("verify_failures") or 0
+    if fails >= settings.reg_max_verify_fails:
+        db.verification_codes_col.delete_one({"_id": doc["_id"]})
+        return api_error("Too many failed attempts. Request a new code.", status=429)
+
+    if not verify_password(doc["code_hash"], code):
+        db.verification_codes_col.update_one({"_id": doc["_id"]}, {"$inc": {"verify_failures": 1}})
+        return api_error("Invalid reset code", status=400)
+
+    user = db.users_col.find_one({"email": email})
+    if not user:
+        db.verification_codes_col.delete_one({"_id": doc["_id"]})
+        return api_error("User not found", status=404)
+
+    db.users_col.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_password(password), "updated_at": utcnow_naive()}},
+    )
+    db.verification_codes_col.update_one({"_id": doc["_id"]}, {"$set": {"used": True}})
+    log_event(
+        "password_reset_completed",
+        user_id=user.get("id"),
+        role=user.get("role"),
+        ip_address=client_ip(),
+        user_agent=user_agent(),
+    )
+    return api_success({}, message="Password updated successfully.")
 
 
 @auth_bp.route("/login", methods=["POST"])
