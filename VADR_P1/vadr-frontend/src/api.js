@@ -113,6 +113,20 @@ export const authAPI = {
   resendCode: (email) =>
     request("POST", "/auth/resend-registration-code", { email: email.trim().toLowerCase() }, { auth: false }),
 
+  forgotPassword: (email) =>
+    request("POST", "/auth/forgot-password", { email: email.trim().toLowerCase() }, { auth: false }),
+
+  resendPasswordResetCode: (email) =>
+    request("POST", "/auth/resend-password-reset-code", { email: email.trim().toLowerCase() }, { auth: false }),
+
+  resetPassword: (email, code, password) =>
+    request(
+      "POST",
+      "/auth/reset-password",
+      { email: email.trim().toLowerCase(), code, password },
+      { auth: false }
+    ),
+
   refresh: async () => {
     const data = await request("POST", "/auth/refresh", null, { auth: false, credentials: true });
     if (data.access_token || data.token) {
