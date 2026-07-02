@@ -2,7 +2,9 @@
  * Unified VADR API client — Bearer auth, refresh cookies, { data, error, message } unwrap.
  */
 
-export const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+export const BASE_URL =
+  process.env.REACT_APP_API_URL ||
+  (process.env.NODE_ENV === "production" ? "http://localhost:5000/api" : "/api");
 
 export class ApiError extends Error {
   constructor(message, { status, code, body } = {}) {
@@ -58,7 +60,10 @@ export async function request(method, endpoint, body = null, { auth = true, cred
   try {
     res = await fetch(`${BASE_URL}${endpoint}`, options);
   } catch (err) {
-    throw new ApiError(err.message || "Failed to fetch", { status: 0, code: "NETWORK_ERROR" });
+    throw new ApiError(
+      err.message || "Failed to fetch — is the Flask backend running on port 5000?",
+      { status: 0, code: "NETWORK_ERROR" }
+    );
   }
   const json = await parseJson(res);
 
