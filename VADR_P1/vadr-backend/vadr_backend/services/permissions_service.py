@@ -23,6 +23,7 @@ DEFAULT_PERMISSION_MATRIX = {
     "System Administration": {"admin": True, "doctor": False, "screener": False, "patient": False},
     "View Analytics": {"admin": True, "doctor": True, "screener": False, "patient": False},
     "Export Data": {"admin": True, "doctor": True, "screener": False, "patient": False},
+    "Edit Patient Credentials": {"admin": True, "doctor": False, "screener": False, "patient": False},
     "Patient Self-Service": {"admin": False, "doctor": False, "screener": False, "patient": True},
 }
 
