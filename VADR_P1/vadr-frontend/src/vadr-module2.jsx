@@ -35,6 +35,7 @@ const DEFAULT_PERMISSION_MATRIX = {
   "System Administration": { admin: true,  doctor: false, screener: false, patient: false },
   "View Analytics":        { admin: true,  doctor: true,  screener: false, patient: false },
   "Export Data":           { admin: true,  doctor: true,  screener: false, patient: false },
+  "Edit Patient Credentials": { admin: true, doctor: false, screener: false, patient: false },
   "Patient Self-Service":  { admin: false, doctor: false, screener: false, patient: true  },
 };
 
@@ -457,9 +458,11 @@ function PatientsTab({ showToast, sessionUser }) {
   const [form, setForm]                 = useState({});
   const [step, setStep]                 = useState(1);
   const [copied, setCopied]             = useState("");
+  const [credForm, setCredForm]         = useState({ email: "", tempPassword: "" });
   const [deletingId, setDeletingId]     = useState(null);
   const canDelete = isAdmin(sessionUser);
   const canEditPatients = ["admin", "doctor"].includes(sessionUser?.role);
+  const canEditCredentials = isAdmin(sessionUser);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -507,7 +510,12 @@ function PatientsTab({ showToast, sessionUser }) {
   const openEdit     = p => { setForm({ ...p }); setSelected(p); setModal("edit"); };
   const openView     = p => { setSelected(p); setModal("view"); };
   const openHistory  = p => { setSelected(p); setModal("history"); };
-  const openCreds    = p => { setSelected(p); setCopied(""); setModal("credentials"); };
+  const openCreds    = p => {
+    setSelected(p);
+    setCopied("");
+    setCredForm({ email: p.email || "", tempPassword: p.tempPassword || "" });
+    setModal("credentials");
+  };
 
   // ── Register new patient → calls POST /api/patients ──
   const handleRegister = async () => {
@@ -573,6 +581,32 @@ function PatientsTab({ showToast, sessionUser }) {
       showToast(err.message, "error");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // ── Update credentials → calls PATCH /api/patients/:id/credentials ──
+  const handleUpdateCredentials = async ({ regenerate = false } = {}) => {
+    if (!credForm.email?.trim()) return showToast("Email is required", "error");
+    const emailChanged = credForm.email.trim() !== selected.email;
+    const passwordChanged = credForm.tempPassword?.trim() && credForm.tempPassword.trim() !== selected.tempPassword;
+    if (!regenerate && !emailChanged && !passwordChanged) {
+      return showToast("No changes to save", "info");
+    }
+    setSaving(true);
+    try {
+      const payload = { email: credForm.email.trim() };
+      if (regenerate) payload.regenerate = true;
+      else if (credForm.tempPassword?.trim()) payload.tempPassword = credForm.tempPassword.trim();
+
+      const updated = await patientAPI.updateCredentials(selected.patientId, payload);
+      setPatients(prev => prev.map(p => p.patientId === selected.patientId ? updated : p));
+      setSelected(updated);
+      setCredForm({ email: updated.email || "", tempPassword: updated.tempPassword || "" });
+      showToast(regenerate ? "New password generated" : "Credentials updated");
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -917,8 +951,8 @@ function PatientsTab({ showToast, sessionUser }) {
 
           {[
             { label: "Patient ID",         value: selected.patientId,   key: "pid",  icon: "patient", mono: true },
-            { label: "Email (Username)",    value: selected.email,       key: "email",icon: "mail",    mono: false },
-            { label: "Temporary Password", value: selected.tempPassword, key: "pass", icon: "key",     mono: true },
+            { label: "Email (Username)",    value: canEditCredentials ? credForm.email : selected.email,       key: "email",icon: "mail",    mono: false },
+            { label: "Temporary Password", value: canEditCredentials ? credForm.tempPassword : selected.tempPassword, key: "pass", icon: "key",     mono: true },
           ].map(c => (
             <div key={c.key} className="vadr-cred-row">
               <div className="vadr-cred-row-icon">
@@ -941,6 +975,24 @@ function PatientsTab({ showToast, sessionUser }) {
               </button>
             </div>
           ))}
+
+          {canEditCredentials && (
+            <div style={{ marginTop: 16, padding: "14px 16px", background: "var(--vadr-surface-muted)", border: "1.5px solid var(--vadr-border)", borderRadius: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--vadr-text)", marginBottom: 12 }}>Edit credentials</div>
+              <div style={{ display: "grid", gap: 12 }}>
+                <Input label="Email (username)" value={credForm.email} onChange={v => setCredForm(f => ({ ...f, email: v }))} type="email" required />
+                <Input label="Temporary password" value={credForm.tempPassword} onChange={v => setCredForm(f => ({ ...f, tempPassword: v }))} hint="Leave unchanged or enter a new password" />
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                <Btn size="sm" variant="secondary" icon="key" loading={saving} onClick={() => handleUpdateCredentials({ regenerate: true })}>
+                  Regenerate password
+                </Btn>
+                <Btn size="sm" icon="check" loading={saving} onClick={() => handleUpdateCredentials()}>
+                  Save credentials
+                </Btn>
+              </div>
+            </div>
+          )}
 
           <div className="vadr-cred-notice">
             <b>Important:</b> Ask patient to change their temporary password after first login.
@@ -1085,18 +1137,29 @@ function UsersTab({ showToast }) {
   return (
     <div>
       {/* Role cards */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
         {ROLES.map(role => {
           const conf = ROLE_PERMISSIONS[role];
+          const active = filterRole === role;
           return (
-            <div key={role} onClick={() => setFilterRole(filterRole === role ? "" : role)}
-              style={{ background: filterRole === role ? conf.bg : "#fff", border: `1.5px solid ${filterRole === role ? conf.color : "#e5e7eb"}`, borderRadius: 12, padding: "14px 20px", display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 140, cursor: "pointer" }}>
-              <div style={{ width: 38, height: 38, borderRadius: 10, background: filterRole === role ? `${conf.color}20` : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon d={I.users} size={18} color={filterRole === role ? conf.color : "#9ca3af"} />
+            <div
+              key={role}
+              className="vadr-stat-card"
+              onClick={() => setFilterRole(active ? "" : role)}
+              style={{
+                cursor: "pointer",
+                borderColor: active ? "var(--vadr-primary-border)" : undefined,
+                boxShadow: active ? "0 8px 20px var(--vadr-shadow)" : undefined,
+              }}
+            >
+              <div className="vadr-stat-icon" style={{ background: `${conf.color}14` }}>
+                <Icon d={I.users} size={22} color={conf.color} />
               </div>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{loading ? "..." : roleCounts[role] || 0}</div>
-                <div style={{ fontSize: 11, color: conf.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{conf.label}s</div>
+                <div className="vadr-stat-value">{loading ? "…" : roleCounts[role] || 0}</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 4, fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  {conf.label}s
+                </div>
               </div>
             </div>
           );

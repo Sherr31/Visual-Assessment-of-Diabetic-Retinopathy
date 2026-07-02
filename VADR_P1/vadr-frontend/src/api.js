@@ -155,6 +155,7 @@ export const patientAPI = {
   update: (patientId, data) => request("PUT", `/patients/${patientId}`, data),
   toggleStatus: (patientId) => request("PATCH", `/patients/${patientId}/status`),
   sendCredentials: (patientId) => request("PATCH", `/patients/${patientId}/send-credentials`),
+  updateCredentials: (patientId, data) => request("PATCH", `/patients/${patientId}/credentials`, data),
   delete: (patientId) => request("DELETE", `/patients/${patientId}`),
 };
 

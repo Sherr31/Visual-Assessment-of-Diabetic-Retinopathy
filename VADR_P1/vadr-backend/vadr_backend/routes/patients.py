@@ -3,7 +3,7 @@ from flask import Blueprint, g, request
 from .. import db
 from ..decorators import require_auth
 from ..responses import api_error, api_success
-from ..utils.common import gen_temp_password, serialize, today
+from ..utils.common import gen_temp_password, hash_password, serialize, today, utcnow_naive
 
 patients_bp = Blueprint("patients", __name__)
 
@@ -146,6 +146,50 @@ def toggle_patient_status(patient_id):
     new_status = "inactive" if patient["status"] == "active" else "active"
     db.patients_col.update_one({"patientId": patient_id}, {"$set": {"status": new_status}})
     return api_success({"status": new_status}, message="Patient status updated")
+
+
+@patients_bp.route("/<patient_id>/credentials", methods=["PATCH"])
+@require_auth(roles=["admin"])
+def update_patient_credentials(patient_id):
+    """Update patient portal login email and/or temporary password (admin only)."""
+    patient = db.patients_col.find_one({"patientId": patient_id})
+    if not patient:
+        return api_error("Patient not found", status=404)
+
+    data = request.get_json() or {}
+    updates = {}
+
+    new_email = (data.get("email") or "").strip().lower()
+    if new_email and new_email != patient.get("email"):
+        if db.patients_col.find_one({"email": new_email, "patientId": {"$ne": patient_id}}):
+            return api_error("A patient with this email already exists", status=409)
+        updates["email"] = new_email
+
+    if data.get("regenerate"):
+        updates["tempPassword"] = gen_temp_password()
+    elif data.get("tempPassword"):
+        password = str(data["tempPassword"]).strip()
+        if len(password) < 6:
+            return api_error("Password must be at least 6 characters", status=400)
+        updates["tempPassword"] = password
+
+    if not updates:
+        return api_error("No changes provided", status=400)
+
+    updates["credentialsSent"] = False
+    db.patients_col.update_one({"patientId": patient_id}, {"$set": updates})
+
+    auth_user = db.users_col.find_one({"email": patient.get("email"), "role": "patient"})
+    if auth_user:
+        user_updates = {"updated_at": utcnow_naive()}
+        if "email" in updates:
+            user_updates["email"] = updates["email"]
+        if "tempPassword" in updates:
+            user_updates["password_hash"] = hash_password(updates["tempPassword"])
+        db.users_col.update_one({"id": auth_user["id"]}, {"$set": user_updates})
+
+    updated = db.patients_col.find_one({"patientId": patient_id})
+    return api_success(serialize(updated), message="Patient credentials updated")
 
 
 @patients_bp.route("/<patient_id>/send-credentials", methods=["PATCH"])
