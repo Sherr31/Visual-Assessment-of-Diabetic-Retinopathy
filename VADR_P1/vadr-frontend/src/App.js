@@ -6,6 +6,7 @@ import RegisterPage from "./modules/p1-mid/auth/pages/RegisterPage";
 import ForgotPasswordPage from "./modules/p1-mid/auth/pages/ForgotPasswordPage";
 import PatientUserManagementPage from "./modules/p1-mid/patient-user-management/pages/PatientUserManagementPage";
 import MedicalHistoryManagementPage from "./modules/p1-mid/medical-history-management/pages/MedicalHistoryManagementPage";
+import FundusImagePage from "./modules/p1-mid/fundus-image/pages/FundusImagePage";
 import PendingApprovalPage from "./pages/PendingApprovalPage";
 import PatientRecordsPage from "./pages/PatientRecordsPage";
 import { getToken, getStoredUser } from "./api";
@@ -71,6 +72,14 @@ function App() {
           element={
             <RequireAuth>
               <MedicalHistoryManagementPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/fundus-analysis"
+          element={
+            <RequireAuth>
+              <FundusImagePage />
             </RequireAuth>
           }
         />

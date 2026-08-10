@@ -1,17 +1,19 @@
+from typing import Any, Optional
 from pymongo import ASCENDING, MongoClient
+from pymongo.collection import Collection
 
-client = None
-db = None
-patients_col = None
-users_col = None
-pending_reg_col = None
-medical_history_col = None
-verification_codes_col = None
-refresh_tokens_col = None
-sessions_col = None
-audit_logs_col = None
-approval_requests_col = None
-rbac_settings_col = None
+client: Optional[MongoClient] = None
+db: Any = None
+patients_col: Collection[dict[str, Any]] = None  # type: ignore
+users_col: Collection[dict[str, Any]] = None  # type: ignore
+pending_reg_col: Collection[dict[str, Any]] = None  # type: ignore
+medical_history_col: Collection[dict[str, Any]] = None  # type: ignore
+verification_codes_col: Collection[dict[str, Any]] = None  # type: ignore
+refresh_tokens_col: Collection[dict[str, Any]] = None  # type: ignore
+sessions_col: Collection[dict[str, Any]] = None  # type: ignore
+audit_logs_col: Collection[dict[str, Any]] = None  # type: ignore
+approval_requests_col: Collection[dict[str, Any]] = None  # type: ignore
+rbac_settings_col: Collection[dict[str, Any]] = None  # type: ignore
 
 
 def init_db(mongo_uri: str) -> None:
@@ -19,6 +21,16 @@ def init_db(mongo_uri: str) -> None:
     global patients_col, users_col, pending_reg_col, medical_history_col
     global verification_codes_col, refresh_tokens_col, sessions_col
     global audit_logs_col, approval_requests_col, rbac_settings_col
+
+    if mongo_uri.startswith("mongodb+srv://"):
+        try:
+            import dns.resolver
+            default_resolver = dns.resolver.get_default_resolver()
+            for ns in ["8.8.8.8", "1.1.1.1", "8.8.4.4"]:
+                if ns not in default_resolver.nameservers:
+                    default_resolver.nameservers.append(ns)  # type: ignore
+        except Exception:
+            pass
 
     client = MongoClient(mongo_uri)
     db = client["vadr_db"]

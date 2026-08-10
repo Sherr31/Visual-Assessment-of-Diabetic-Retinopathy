@@ -1,0 +1,14 @@
+{
+  "python.defaultInterpreterPath": "./venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/VADR_P1/vadr-backend",
+    "${workspaceFolder}/VADR_P1/vadr-backend/venv/Lib/site-packages"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/VADR_P1/vadr-backend",
+    "${workspaceFolder}/VADR_P1/vadr-backend/venv/Lib/site-packages"
+  ],
+  "terminal.integrated.env.windows": {
+    "PYTHONPATH": "${workspaceFolder}/VADR_P1/vadr-backend;${workspaceFolder}/VADR_P1/vadr-backend/venv/Lib/site-packages"
+  }
+}

@@ -217,7 +217,7 @@ def upsert_medical_history(patient_id):
         upsert=True,
     )
 
-    history = db.medical_history_col.find_one({"patientId": patient_id})
+    history = db.medical_history_col.find_one({"patientId": patient_id}) or {}
     scans = history.get("scans", [])
     last_scan = "—"
     if scans:

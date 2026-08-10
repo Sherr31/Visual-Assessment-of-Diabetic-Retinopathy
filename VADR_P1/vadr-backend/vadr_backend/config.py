@@ -51,7 +51,7 @@ settings = Settings(
     jwt_secret_key=os.environ.get("JWT_SECRET_KEY") or os.environ.get("SECRET_KEY", "dev-vadr-jwt-change-in-production"),
     mongo_uri=os.environ.get(
         "MONGO_URI",
-        "mongodb+srv://taha757:Taharao123@vadr.elfsv9q.mongodb.net/vadr_db?retryWrites=true&w=majority",
+        "mongodb://taha757:Taharao123@ac-lzrmfy5-shard-00-00.elfsv9q.mongodb.net:27017,ac-lzrmfy5-shard-00-01.elfsv9q.mongodb.net:27017,ac-lzrmfy5-shard-00-02.elfsv9q.mongodb.net:27017/vadr_db?ssl=true&replicaSet=atlas-zhdqd3-shard-0&authSource=admin&retryWrites=true&w=majority",
     ),
     access_token_expires_min=int(os.environ.get("VADR_ACCESS_TOKEN_EXPIRES_MIN", "15")),
     refresh_token_expires_days=int(os.environ.get("VADR_REFRESH_TOKEN_EXPIRES_DAYS", "7")),

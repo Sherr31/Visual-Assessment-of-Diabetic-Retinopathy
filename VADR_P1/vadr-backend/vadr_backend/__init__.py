@@ -9,6 +9,7 @@ from .routes.patients import patients_bp
 from .routes.system import system_bp
 from .routes.users import users_bp
 from .services.auth_service import migrate_demo_password_hashes
+from .routes.predict import predict_bp
 
 
 def create_app() -> Flask:
@@ -34,5 +35,11 @@ def create_app() -> Flask:
     app.register_blueprint(patients_bp, url_prefix="/api/patients")
     app.register_blueprint(users_bp, url_prefix="/api/users")
     app.register_blueprint(system_bp, url_prefix="/api")
+
+
+    app.register_blueprint(
+    predict_bp,
+    url_prefix="/api"
+)
 
     return app

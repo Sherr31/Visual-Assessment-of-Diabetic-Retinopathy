@@ -26,7 +26,8 @@ def issue_access_token(user_doc: dict, session_id: str | None = None) -> tuple[s
     }
     if session_id:
         payload["session_id"] = session_id
-    token = jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
+    encoded = jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
+    token = encoded.decode("utf-8") if isinstance(encoded, bytes) else str(encoded)
     return token, settings.access_token_expires_min * 60
 
 

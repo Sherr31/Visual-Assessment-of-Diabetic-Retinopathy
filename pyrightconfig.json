@@ -1,0 +1,20 @@
+{
+  "include": [
+    "VADR_P1/vadr-backend"
+  ],
+  "venvPath": "VADR_P1/vadr-backend",
+  "venv": "venv",
+  "extraPaths": [
+    "VADR_P1/vadr-backend",
+    "VADR_P1/vadr-backend/venv/Lib/site-packages"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "VADR_P1/vadr-backend",
+      "extraPaths": [
+        "VADR_P1/vadr-backend",
+        "VADR_P1/vadr-backend/venv/Lib/site-packages"
+      ]
+    }
+  ]
+}

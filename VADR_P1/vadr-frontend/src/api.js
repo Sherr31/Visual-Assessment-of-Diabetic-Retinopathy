@@ -194,3 +194,36 @@ export const adminAPI = {
 };
 
 export const checkHealth = () => request("GET", "/health", null, { auth: false });
+
+// ─── AI Prediction ────────────────────────────────────────────────────────────
+
+export const predictAPI = {
+  /**
+   * Upload a fundus image file and get the DR prediction result.
+   * @param {File} imageFile  - The fundus image file to analyse.
+   * @returns {Promise<{class_id, prediction, confidence, probabilities, gradcam}>}
+   */
+  analyze: async (imageFile) => {
+    const form = new FormData();
+    form.append("image", imageFile);
+
+    let res;
+    try {
+      res = await fetch(`${BASE_URL}/predict`, { method: "POST", body: form });
+    } catch (err) {
+      throw new ApiError(err.message || "Failed to fetch", { status: 0, code: "NETWORK_ERROR" });
+    }
+
+    const json = await parseJson(res);
+
+    if (!res.ok) {
+      throw new ApiError(json.error || json.message || "Prediction failed", {
+        status: res.status,
+        code: json.code,
+        body: json,
+      });
+    }
+
+    return json;
+  },
+};

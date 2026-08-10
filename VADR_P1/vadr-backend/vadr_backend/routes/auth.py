@@ -1,6 +1,7 @@
 """Authentication routes: register, verify, login, refresh, logout, sessions."""
 
 from datetime import timedelta
+from typing import Any
 
 from flask import Blueprint, g, request
 
@@ -87,7 +88,8 @@ def _finalize_registration(email: str, pl: dict):
             }
         )
 
-    user = db.users_col.find_one({"id": new_user["id"]})
+    fetched = db.users_col.find_one({"id": new_user["id"]})
+    user: dict[str, Any] = fetched if fetched is not None else new_user
     session = create_session(user["id"], client_ip(), device_fingerprint())
     access_token, expires_in = issue_access_token(user, session["session_id"])
     raw_refresh, refresh_exp = create_refresh_token(user["id"], session["session_id"], device_fingerprint())
@@ -302,7 +304,7 @@ def auth_resend_registration_code():
 
 
 def _generic_reset_response(email_sent: bool = True, email_error: str | None = None):
-    payload = {
+    payload: dict[str, Any] = {
         "verificationRequired": True,
         "emailSent": email_sent,
     }
@@ -487,10 +489,12 @@ def auth_login():
         return api_error("Account suspended", code="FORBIDDEN", status=403)
 
     db.users_col.update_one({"id": user["id"]}, {"$set": {"lastLogin": today(), "updated_at": utcnow_naive()}})
-    user = db.users_col.find_one({"id": user["id"]})
+    fetched_user = db.users_col.find_one({"id": user["id"]})
+    if fetched_user is not None:
+        user = fetched_user
 
     session = create_session(user["id"], client_ip(), device_fingerprint())
-    request._current_session_id = session["session_id"]
+    setattr(request, "_current_session_id", session["session_id"])
     access_token, expires_in = issue_access_token(user, session["session_id"])
     raw_refresh, refresh_exp = create_refresh_token(user["id"], session["session_id"], device_fingerprint())
 
