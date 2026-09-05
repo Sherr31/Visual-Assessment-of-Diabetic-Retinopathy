@@ -10,6 +10,7 @@ from ..decorators import require_auth
 from ..responses import api_error, api_success
 from ..services.audit_service import log_event, query_logs
 from ..services.auth_service import revoke_all_user_tokens
+from ..services.backup_service import create_backup, get_backups, restore_backup
 from ..services.mail_service import send_doctor_approval_email, send_doctor_rejection_email
 from ..services.permissions_service import (
     get_permission_matrix,
@@ -163,21 +164,40 @@ def audit_logs():
     event_type = request.args.get("event_type")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
-    page = max(int(request.args.get("page", 1)), 1)
-    per_page = min(max(int(request.args.get("per_page", 50)), 1), 200)
 
-    def _parse_date(value):
+    try:
+        page = max(int(request.args.get("page", 1)), 1)
+    except (ValueError, TypeError):
+        page = 1
+
+    try:
+        per_page = min(max(int(request.args.get("per_page", 50)), 1), 200)
+    except (ValueError, TypeError):
+        per_page = 50
+
+    def _parse_date(value, param_name):
         if not value:
-            return None
+            return None, None
         from datetime import datetime
 
-        return datetime.fromisoformat(value.replace("Z", ""))
+        try:
+            return datetime.fromisoformat(value.replace("Z", "")), None
+        except (ValueError, TypeError):
+            return None, f"Invalid date format for '{param_name}'. Expected ISO 8601 format."
+
+    parsed_start, start_err = _parse_date(start_date, "start_date")
+    if start_err:
+        return api_error(start_err, status=400)
+
+    parsed_end, end_err = _parse_date(end_date, "end_date")
+    if end_err:
+        return api_error(end_err, status=400)
 
     logs, total = query_logs(
         user_id=user_id,
         event_type=event_type,
-        start_date=_parse_date(start_date),
-        end_date=_parse_date(end_date),
+        start_date=parsed_start,
+        end_date=parsed_end,
         page=page,
         per_page=per_page,
     )
@@ -249,3 +269,86 @@ def reset_permissions():
         user_agent=user_agent(),
     )
     return api_success(result, message="Permissions reset to defaults")
+
+
+@admin_bp.route("/backups", methods=["GET"])
+@require_auth(roles=["admin"])
+def list_backups():
+    """List system backups (admin only)."""
+    backups = get_backups()
+    return api_success(backups, message="System backups")
+
+
+@admin_bp.route("/backups", methods=["POST"])
+@require_auth(roles=["admin"])
+def create_system_backup():
+    """Create a new system backup (admin only)."""
+    try:
+        backup = create_backup(g.current_user["id"])
+        log_event(
+            "backup_created",
+            user_id=g.current_user["id"],
+            role="admin",
+            ip_address=client_ip(),
+            user_agent=user_agent(),
+            metadata={"backup_id": backup["backup_id"], "size_bytes": backup["size_bytes"]},
+        )
+        return api_success(backup, message="Backup created successfully", status=201)
+    except Exception as exc:
+        return api_error(str(exc), status=500)
+
+
+@admin_bp.route("/backups/<backup_id>/restore", methods=["POST"])
+@require_auth(roles=["admin"])
+def restore_system_backup(backup_id):
+    """Restore the system from a specific backup ID (admin only)."""
+    data = request.get_json() or {}
+    confirmation = data.get("confirmation", "").strip()
+
+    if confirmation != "RESTORE":
+        log_event(
+            "backup_restore_failed",
+            user_id=g.current_user["id"],
+            role="admin",
+            ip_address=client_ip(),
+            user_agent=user_agent(),
+            metadata={"backup_id": backup_id, "error": "Invalid confirmation string"},
+        )
+        return api_error("Invalid confirmation. You must type exactly RESTORE.", status=400)
+
+    try:
+        result = restore_backup(backup_id)
+
+        # Invalidate sessions/tokens for safety
+        db.refresh_tokens_col.update_many({}, {"$set": {"revoked": True}})
+        db.sessions_col.update_many({}, {"$set": {"revoked": True}})
+
+        log_event(
+            "backup_restored",
+            user_id=g.current_user["id"],
+            role="admin",
+            ip_address=client_ip(),
+            user_agent=user_agent(),
+            metadata={"backup_id": backup_id, "restored_collections": result["restored_collections"]},
+        )
+        return api_success(result, message="Backup restored successfully")
+    except ValueError as exc:
+        log_event(
+            "backup_restore_failed",
+            user_id=g.current_user["id"],
+            role="admin",
+            ip_address=client_ip(),
+            user_agent=user_agent(),
+            metadata={"backup_id": backup_id, "error": str(exc)},
+        )
+        return api_error(str(exc), status=400)
+    except Exception as exc:
+        log_event(
+            "backup_restore_failed",
+            user_id=g.current_user["id"],
+            role="admin",
+            ip_address=client_ip(),
+            user_agent=user_agent(),
+            metadata={"backup_id": backup_id, "error": "Internal server error"},
+        )
+        return api_error("An error occurred during restore", status=500)

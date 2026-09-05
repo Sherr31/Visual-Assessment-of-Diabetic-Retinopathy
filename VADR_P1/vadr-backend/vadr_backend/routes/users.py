@@ -3,9 +3,13 @@ from flask import Blueprint, g, request
 from .. import db
 from ..decorators import require_auth
 from ..responses import api_error, api_success
+from ..services.audit_service import log_event
 from ..utils.common import gen_user_id, hash_password, serialize, today, utcnow_naive
+from ..utils.request_context import client_ip, user_agent
 
 users_bp = Blueprint("users", __name__)
+
+SENSITIVE_KEYS = frozenset({"password", "password_hash", "confirm_password", "new_password", "token", "refresh_token", "verification_code"})
 
 
 @users_bp.route("/doctors", methods=["GET"])
@@ -68,6 +72,20 @@ def create_user():
 
     result = db.users_col.insert_one(new_user)
     new_user["_id"] = str(result.inserted_id)
+
+    log_event(
+        "user_created",
+        user_id=g.current_user["id"] if hasattr(g, "current_user") and g.current_user else None,
+        role=g.current_user.get("role") if hasattr(g, "current_user") and g.current_user else "admin",
+        ip_address=client_ip(),
+        user_agent=user_agent(),
+        metadata={
+            "target_user_id": new_user["id"],
+            "target_role": new_user.get("role"),
+            "target_email": new_user.get("email"),
+        },
+    )
+
     return api_success(serialize(new_user), message="User created", status=201)
 
 
@@ -78,6 +96,8 @@ def update_user(user_id):
     data = request.get_json() or {}
     data.pop("_id", None)
     data.pop("id", None)
+
+    changed_fields = [k for k in data.keys() if k.lower() not in SENSITIVE_KEYS]
     if "password" in data and data["password"]:
         data["password_hash"] = hash_password(data.pop("password"))
     elif "password" in data:
@@ -87,6 +107,18 @@ def update_user(user_id):
     result = db.users_col.update_one({"id": user_id}, {"$set": data})
     if result.matched_count == 0:
         return api_error("User not found", status=404)
+
+    log_event(
+        "user_updated",
+        user_id=g.current_user["id"] if hasattr(g, "current_user") and g.current_user else None,
+        role=g.current_user.get("role") if hasattr(g, "current_user") and g.current_user else "admin",
+        ip_address=client_ip(),
+        user_agent=user_agent(),
+        metadata={
+            "target_user_id": user_id,
+            "changed_fields": changed_fields,
+        },
+    )
 
     updated = db.users_col.find_one({"id": user_id})
     return api_success(serialize(updated), message="User updated")
@@ -103,8 +135,23 @@ def toggle_user_status(user_id):
     if not user:
         return api_error("User not found", status=404)
 
-    new_status = "suspended" if user.get("status") == "active" else "active"
+    previous_status = user.get("status", "active")
+    new_status = "suspended" if previous_status == "active" else "active"
     db.users_col.update_one({"id": user_id}, {"$set": {"status": new_status, "updated_at": utcnow_naive()}})
+
+    log_event(
+        "user_status_changed",
+        user_id=g.current_user["id"] if hasattr(g, "current_user") and g.current_user else None,
+        role=g.current_user.get("role") if hasattr(g, "current_user") and g.current_user else "admin",
+        ip_address=client_ip(),
+        user_agent=user_agent(),
+        metadata={
+            "target_user_id": user_id,
+            "previous_status": previous_status,
+            "new_status": new_status,
+        },
+    )
+
     return api_success({"status": new_status}, message="User status updated")
 
 
@@ -115,7 +162,25 @@ def delete_user(user_id):
     if user_id == "u1":
         return api_error("Cannot delete main admin", status=403)
 
+    user = db.users_col.find_one({"id": user_id})
+    if not user:
+        return api_error("User not found", status=404)
+
+    target_role = user.get("role")
     result = db.users_col.delete_one({"id": user_id})
     if result.deleted_count == 0:
         return api_error("User not found", status=404)
+
+    log_event(
+        "user_deleted",
+        user_id=g.current_user["id"] if hasattr(g, "current_user") and g.current_user else None,
+        role=g.current_user.get("role") if hasattr(g, "current_user") and g.current_user else "admin",
+        ip_address=client_ip(),
+        user_agent=user_agent(),
+        metadata={
+            "target_user_id": user_id,
+            "target_role": target_role,
+        },
+    )
+
     return api_success(message="User deleted")

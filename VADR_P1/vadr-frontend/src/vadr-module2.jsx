@@ -9,7 +9,7 @@ import {
   patientAPI,
   userAPI,
 } from "./api";
-import { getStoredUser, setSession } from "./api";
+import { clearSession, getStoredUser, setSession } from "./api";
 import { isAdmin } from "./lib/session";
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -148,6 +148,8 @@ const I = {
   warning: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01",
   referral:"M22 2L11 13M22 2l-7 20-4-9-9-4 20-7",
   spinner: "M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83",
+  log:     "M9 12h6M9 8h6M9 16h4M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z",
+  backup:  "M12 3a9 9 0 1 0 9 9M12 3v9l4-4M12 3l-4 5",
 };
 
 const Badge = ({ role }) => {
@@ -324,10 +326,12 @@ export default function App() {
 
   const role = sessionUser?.role;
   const allTabs = [
-    { id: "patients", label: "Patients",           icon: "patient", roles: ["admin", "doctor", "screener"] },
-    { id: "users",    label: "User Accounts",       icon: "users",   roles: ["admin"] },
-    { id: "approvals", label: "Doctor Approvals",   icon: "shield",  roles: ["admin"] },
-    { id: "rbac",     label: "Roles & Permissions", icon: "shield",  roles: ["admin"] },
+    { id: "patients",   label: "Patients",           icon: "patient", roles: ["admin", "doctor", "screener"] },
+    { id: "users",      label: "User Accounts",       icon: "users",   roles: ["admin"] },
+    { id: "approvals",  label: "Doctor Approvals",    icon: "shield",  roles: ["admin"] },
+    { id: "rbac",       label: "Roles & Permissions", icon: "shield",  roles: ["admin"] },
+    { id: "audit-logs", label: "Audit Logs",           icon: "log",     roles: ["admin"] },
+    { id: "backups",    label: "System Backups",       icon: "backup",  roles: ["admin"] },
   ];
   const tabs = allTabs.filter((t) => t.roles.includes(role));
 
@@ -428,10 +432,12 @@ export default function App() {
 
       <main className="vadr-main">
         <div key={tab} className="vadr-panel">
-          {tab === "patients" && <PatientsTab showToast={showToast} sessionUser={sessionUser} />}
-          {tab === "users"    && <UsersTab    showToast={showToast} />}
-          {tab === "approvals" && <ApprovalsTab showToast={showToast} />}
-          {tab === "rbac"     && <RBACTab showToast={showToast} />}
+          {tab === "patients"   && <PatientsTab  showToast={showToast} sessionUser={sessionUser} />}
+          {tab === "users"      && <UsersTab      showToast={showToast} />}
+          {tab === "approvals"  && <ApprovalsTab  showToast={showToast} />}
+          {tab === "rbac"       && <RBACTab       showToast={showToast} />}
+          {tab === "audit-logs" && <AuditLogsTab  showToast={showToast} />}
+          {tab === "backups"    && <BackupsTab    showToast={showToast} />}
         </div>
       </main>
 
@@ -1604,6 +1610,428 @@ function RBACTab({ showToast }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUDIT LOGS TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function AuditLogsTab({ showToast }) {
+  const [logs, setLogs]           = useState([]);
+  const [total, setTotal]         = useState(0);
+  const [page, setPage]           = useState(1);
+  const [perPage]                 = useState(25);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
+  const [filters, setFilters]     = useState({ user_id: "", event_type: "", start_date: "", end_date: "" });
+  const [expanded, setExpanded]   = useState(null);
+
+  const loadLogs = useCallback(async (pg = 1, customFilters = null) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const activeFilters = customFilters || filters;
+      const params = { page: pg, per_page: perPage };
+      if (activeFilters.user_id)    params.user_id    = activeFilters.user_id.trim();
+      if (activeFilters.event_type) params.event_type = activeFilters.event_type.trim();
+      if (activeFilters.start_date) params.start_date = activeFilters.start_date;
+      if (activeFilters.end_date)   params.end_date   = activeFilters.end_date;
+      const data = await adminAPI.auditLogs(params);
+      setLogs(Array.isArray(data?.items) ? data.items : []);
+      setTotal(typeof data?.total === "number" ? data.total : 0);
+      setPage(pg);
+    } catch (err) {
+      setError(err.message || "Failed to load audit logs");
+      showToast(err.message || "Failed to load audit logs", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, perPage, showToast]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadLogs(1); }, []);
+
+  const handleFilter = (e) => {
+    e.preventDefault();
+    loadLogs(1);
+  };
+
+  const handleClearFilters = () => {
+    const emptyFilters = { user_id: "", event_type: "", start_date: "", end_date: "" };
+    setFilters(emptyFilters);
+    loadLogs(1, emptyFilters);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const fmt = (ts) => {
+    if (!ts) return "—";
+    try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  };
+
+  const safeMetadata = (meta) => {
+    if (!meta || typeof meta !== "object") return "—";
+    const REDACTED = ["password_hash", "password", "token", "access_token", "refresh_token", "code_hash", "secret"];
+    const cleaned = Object.fromEntries(
+      Object.entries(meta).filter(([k]) => !REDACTED.some(r => k.toLowerCase().includes(r)))
+    );
+    if (!Object.keys(cleaned).length) return "—";
+    return JSON.stringify(cleaned, null, 2);
+  };
+
+  const EVENT_COLORS = {
+    login: "#059669", failed_login: "#dc2626", logout: "#d97706",
+    register: "#1a56db", user_created: "#7e3af2", user_updated: "#0694a2",
+    user_deleted: "#dc2626", user_status_changed: "#d97706",
+    backup_created: "#059669", backup_restored: "#1a56db", backup_restore_failed: "#dc2626",
+    approve: "#059669", reject: "#dc2626",
+  };
+  const evColor = (et) => EVENT_COLORS[et] || "#64748b";
+
+  return (
+    <div>
+      <div className="vadr-welcome">
+        <div>
+          <h2>Audit Logs</h2>
+          <p>System-wide event log · {total} total records</p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="vadr-surface vadr-surface-pad" style={{ marginBottom: 20 }}>
+        <form onSubmit={handleFilter} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>Event Type</label>
+            <input
+              id="audit-filter-event"
+              value={filters.event_type}
+              onChange={e => setFilters(f => ({ ...f, event_type: e.target.value }))}
+              placeholder="e.g. login"
+              style={{ ...inputStyle, width: 160 }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>User ID</label>
+            <input
+              id="audit-filter-user"
+              value={filters.user_id}
+              onChange={e => setFilters(f => ({ ...f, user_id: e.target.value }))}
+              placeholder="e.g. u12345"
+              style={{ ...inputStyle, width: 150 }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>Start Date</label>
+            <input
+              id="audit-filter-start"
+              type="datetime-local"
+              value={filters.start_date}
+              onChange={e => setFilters(f => ({ ...f, start_date: e.target.value }))}
+              style={{ ...inputStyle, width: 200 }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>End Date</label>
+            <input
+              id="audit-filter-end"
+              type="datetime-local"
+              value={filters.end_date}
+              onChange={e => setFilters(f => ({ ...f, end_date: e.target.value }))}
+              style={{ ...inputStyle, width: 200 }}
+            />
+          </div>
+          <Btn type="submit" loading={loading} icon="search" id="audit-filter-apply">Apply Filters</Btn>
+          <Btn type="button" variant="secondary" onClick={handleClearFilters}>Clear</Btn>
+        </form>
+      </div>
+
+      {/* Table */}
+      <div className="vadr-surface vadr-surface-panel">
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--vadr-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontWeight: 700, fontSize: 14, color: "var(--vadr-text)" }}>Audit Events</span>
+          <span style={{ fontSize: 12, color: "var(--vadr-text-faint)" }}>Page {page} of {totalPages} · {total} events</span>
+        </div>
+
+        {error && (
+          <div style={{ padding: 24, textAlign: "center", color: "#dc2626", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+            <Icon d={I.warning} size={24} color="#dc2626" />
+            <div style={{ fontWeight: 600 }}>Failed to load audit logs</div>
+            <div style={{ fontSize: 13 }}>{error}</div>
+            <Btn size="sm" onClick={() => loadLogs(page)}>Retry</Btn>
+          </div>
+        )}
+
+        {!error && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  {["Timestamp", "Actor / User ID", "Event Type", "IP Address", "User Agent", "Details"].map(h => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading && [1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} cols={6} />)}
+                {!loading && logs.length === 0 && (
+                  <tr><td colSpan={6} style={{ padding: 0, border: "none" }}>
+                    <EmptyState icon="📋" title="No audit events found" description="Try adjusting the filters or date range." />
+                  </td></tr>
+                )}
+                {!loading && logs.map((log, i) => (
+                  <tr key={log._id || i} style={{ cursor: "pointer" }} onClick={() => setExpanded(expanded === i ? null : i)}>
+                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11, whiteSpace: "nowrap" }}>{fmt(log.timestamp)}</td>
+                    <td style={tdStyle}>
+                      <div style={{ fontFamily: "monospace", fontSize: 11, color: "#1a56db" }}>{log.user_id || <span style={{ color: "#9ca3af" }}>—</span>}</div>
+                      {log.role && <div style={{ fontSize: 10, color: "#9ca3af" }}>{log.role}</div>}
+                    </td>
+                    <td style={tdStyle}>
+                      <span style={{ background: `${evColor(log.event_type)}14`, color: evColor(log.event_type), border: `1px solid ${evColor(log.event_type)}33`, borderRadius: 12, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 0.3 }}>
+                        {log.event_type || "—"}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11 }}>{log.ip_address || "—"}</td>
+                    <td style={{ ...tdStyle, fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span title={log.user_agent}>{log.user_agent || "—"}</span>
+                    </td>
+                    <td style={tdStyle}>
+                      {expanded === i ? (
+                        <pre style={{ margin: 0, fontSize: 11, background: "#f8fafc", borderRadius: 6, padding: "8px 12px", maxWidth: 300, overflowX: "auto", color: "#334155", border: "1px solid #e2e8f0" }}>
+                          {safeMetadata(log.metadata)}
+                        </pre>
+                      ) : (
+                        <Btn size="sm" variant="ghost" onClick={e => { e.stopPropagation(); setExpanded(i); }}>
+                          View
+                        </Btn>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {!error && total > perPage && (
+          <div style={{ padding: "14px 20px", borderTop: "1px solid var(--vadr-border)", display: "flex", gap: 10, alignItems: "center", justifyContent: "center" }}>
+            <Btn size="sm" variant="secondary" disabled={page <= 1} onClick={() => loadLogs(page - 1)} id="audit-prev">← Previous</Btn>
+            <span style={{ fontSize: 13, color: "var(--vadr-text-muted)" }}>Page {page} of {totalPages}</span>
+            <Btn size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => loadLogs(page + 1)} id="audit-next">Next →</Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SYSTEM BACKUPS TAB
+// ══════════════════════════════════════════════════════════════════════════════
+function BackupsTab({ showToast }) {
+  const [backups, setBackups]         = useState([]);
+  const [loading, setLoading]         = useState(false);
+  const [creating, setCreating]       = useState(false);
+  const [restoreModal, setRestoreModal] = useState(null); // backup object
+  const [confirmText, setConfirmText] = useState("");
+  const [restoring, setRestoring]     = useState(false);
+  const [error, setError]             = useState(null);
+
+  const loadBackups = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await adminAPI.getBackups();
+      setBackups(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message || "Failed to load backups");
+      showToast(err.message || "Failed to load backups", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => { loadBackups(); }, [loadBackups]);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    try {
+      const backup = await adminAPI.createBackup();
+      setBackups(prev => [backup, ...prev]);
+      showToast("Backup created successfully");
+    } catch (err) {
+      showToast(err.message || "Backup failed", "error");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openRestore = (backup) => {
+    setConfirmText("");
+    setRestoreModal(backup);
+  };
+
+  const handleRestore = async () => {
+    if (confirmText !== "RESTORE") return;
+    setRestoring(true);
+    try {
+      await adminAPI.restoreBackup(restoreModal.backup_id, "RESTORE");
+      showToast("Backup restored. You have been signed out for security.", "warning");
+      setRestoreModal(null);
+      clearSession();
+      // Sessions were invalidated by backend — force client logout
+      setTimeout(() => { window.location.href = "/login"; }, 2000);
+    } catch (err) {
+      showToast(err.message || "Restore failed", "error");
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const fmtBytes = (b) => {
+    if (b == null) return "—";
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+  };
+  const fmt = (ts) => {
+    if (!ts) return "—";
+    try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  };
+
+  return (
+    <div>
+      <div className="vadr-welcome">
+        <div>
+          <h2>System Backups</h2>
+          <p>Manage database snapshots · {backups.length} backup{backups.length !== 1 ? "s" : ""} on record</p>
+        </div>
+        <Btn icon="backup" loading={creating} disabled={creating} onClick={handleCreate} id="btn-create-backup"
+          style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.35)", color: "#fff" }}>
+          Create Database Backup
+        </Btn>
+      </div>
+
+      {/* Warning */}
+      <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 12, padding: "13px 18px", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
+        <Icon d={I.warning} size={18} color="#d97706" />
+        <span style={{ fontSize: 13, color: "#92400e" }}>
+          <b>Restore is destructive.</b> Restoring a backup will overwrite the current database.
+          All active sessions will be invalidated. Use with caution.
+        </span>
+      </div>
+
+      {error && (
+        <div style={{ padding: 24, textAlign: "center", color: "#dc2626", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <Icon d={I.warning} size={24} color="#dc2626" />
+          <div style={{ fontWeight: 600 }}>Failed to load backups</div>
+          <div style={{ fontSize: 13 }}>{error}</div>
+          <Btn size="sm" onClick={loadBackups}>Retry</Btn>
+        </div>
+      )}
+
+      {/* Backup table */}
+      {!error && (
+        <div className="vadr-surface vadr-surface-panel">
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--vadr-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 700, fontSize: 14, color: "var(--vadr-text)" }}>Backup History</span>
+            <Btn size="sm" variant="secondary" onClick={loadBackups} loading={loading}>Refresh</Btn>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  {["Backup ID", "Timestamp", "Size", "Status", "Collections", "Created By", "Actions"].map(h => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading && [1, 2, 3].map(i => <SkeletonRow key={i} cols={7} />)}
+                {!loading && backups.length === 0 && (
+                  <tr><td colSpan={7} style={{ padding: 0, border: "none" }}>
+                    <EmptyState
+                      icon="💾"
+                      title="No backups yet"
+                      description="Create your first backup to protect your data."
+                      actionLabel="Create Backup"
+                      onAction={handleCreate}
+                    />
+                  </td></tr>
+                )}
+                {!loading && backups.map((b, i) => (
+                  <tr key={b.backup_id || i}>
+                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11 }}>
+                      <span style={{ background: "#eff6ff", color: "#1a56db", borderRadius: 6, padding: "3px 8px", fontSize: 11 }}>
+                        {(b.backup_id || "—").substring(0, 8)}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, whiteSpace: "nowrap", fontSize: 12 }}>{fmt(b.created_at)}</td>
+                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 12 }}>{fmtBytes(b.size_bytes)}</td>
+                    <td style={tdStyle}>
+                      <span style={{
+                        background: b.status === "completed" ? "#d1fae5" : "#fee2e2",
+                        color: b.status === "completed" ? "#059669" : "#dc2626",
+                        borderRadius: 12, padding: "2px 10px", fontSize: 11, fontWeight: 700
+                      }}>
+                        {b.status || "—"}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, fontSize: 11 }}>
+                      {Array.isArray(b.collections_included) ? b.collections_included.join(", ") : "—"}
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11 }}>{b.created_by || "—"}</td>
+                    <td style={tdStyle}>
+                      <Btn size="sm" variant="danger" onClick={() => openRestore(b)} id={`btn-restore-${b.backup_id}`}>
+                        Restore
+                      </Btn>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Restore confirmation modal */}
+      {restoreModal && (
+        <Modal title="⚠️ Confirm Database Restore" onClose={() => !restoring && setRestoreModal(null)} width={480}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ background: "#fef2f2", border: "1.5px solid #fecaca", borderRadius: 10, padding: "14px 16px", fontSize: 13, color: "#991b1b", lineHeight: 1.6 }}>
+              <b>Warning:</b> This will permanently overwrite the current database with the backup from
+              {" "}<b>{fmt(restoreModal.created_at)}</b>.
+              All current data and active sessions will be lost. This action cannot be undone.
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>
+                Type <span style={{ fontFamily: "monospace", background: "#f3f4f6", padding: "1px 6px", borderRadius: 4, color: "#1a56db" }}>RESTORE</span> to confirm:
+              </label>
+              <input
+                id="restore-confirm-input"
+                value={confirmText}
+                onChange={e => setConfirmText(e.target.value)}
+                placeholder="RESTORE"
+                disabled={restoring}
+                style={{ ...inputStyle, fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: confirmText === "RESTORE" ? "#059669" : undefined }}
+                autoFocus
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <Btn variant="secondary" onClick={() => setRestoreModal(null)} disabled={restoring}>Cancel</Btn>
+              <Btn
+                id="btn-confirm-restore"
+                variant="dangerSolid"
+                loading={restoring}
+                disabled={confirmText !== "RESTORE" || restoring}
+                onClick={handleRestore}
+              >
+                Restore Database
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

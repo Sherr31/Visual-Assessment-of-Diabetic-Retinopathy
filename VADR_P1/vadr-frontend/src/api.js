@@ -191,6 +191,10 @@ export const adminAPI = {
   getPermissions: () => request("GET", "/admin/permissions"),
   updatePermissions: (matrix) => request("PUT", "/admin/permissions", { matrix }),
   resetPermissions: () => request("POST", "/admin/permissions/reset", {}),
+  getBackups: () => request("GET", "/admin/backups"),
+  createBackup: () => request("POST", "/admin/backups", {}),
+  restoreBackup: (backupId, confirmation) =>
+    request("POST", `/admin/backups/${backupId}/restore`, { confirmation }),
 };
 
 export const checkHealth = () => request("GET", "/health", null, { auth: false });
