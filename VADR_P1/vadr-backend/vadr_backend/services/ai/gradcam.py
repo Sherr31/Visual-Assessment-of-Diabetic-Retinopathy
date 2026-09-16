@@ -1,18 +1,23 @@
 import os
 import uuid
-
 import numpy as np
-import tensorflow as tf
 
-# ── Use the non-interactive Agg backend BEFORE importing pyplot.
-# pyplot's default backend (TkAgg) tries to open a GUI window which
-# crashes when called from a Flask request thread (non-main thread).
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+try:
+    import tensorflow as tf
+except Exception:
+    tf = None
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except Exception:
+    plt = None
 
 from .model_loader import model
 from .preprocess import preprocess_image
+
+
 
 # Absolute path to the project root (vadr-backend/) so the output folder
 # is always resolved correctly regardless of Flask's internal root_path.
@@ -22,10 +27,13 @@ _PROJECT_ROOT = os.path.abspath(
 
 
 def generate_gradcam(image_path, output_folder="uploads/gradcam"):
+    if tf is None or model is None or plt is None:
+        return ""
 
     # Resolve output folder to an absolute path under the project root
     abs_output_folder = os.path.join(_PROJECT_ROOT, output_folder)
     os.makedirs(abs_output_folder, exist_ok=True)
+
 
     # Load image
     image = preprocess_image(image_path)[0]

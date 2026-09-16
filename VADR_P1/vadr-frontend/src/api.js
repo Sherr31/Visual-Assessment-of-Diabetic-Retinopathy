@@ -211,9 +211,13 @@ export const predictAPI = {
     const form = new FormData();
     form.append("image", imageFile);
 
+    const headers = {};
+    const tok = getToken();
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+
     let res;
     try {
-      res = await fetch(`${BASE_URL}/predict`, { method: "POST", body: form });
+      res = await fetch(`${BASE_URL}/predict`, { method: "POST", headers, body: form });
     } catch (err) {
       throw new ApiError(err.message || "Failed to fetch", { status: 0, code: "NETWORK_ERROR" });
     }

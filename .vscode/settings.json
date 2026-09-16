@@ -1,5 +1,5 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/VADR_P1/vadr-backend/venv/Scripts/python.exe",
+  "python.defaultInterpreterPath": "${workspaceFolder}/VADR_P1/vadr-backend/.venv/Scripts/python.exe",
   "python.venvFolders": [
     "VADR_P1/vadr-backend"
   ],

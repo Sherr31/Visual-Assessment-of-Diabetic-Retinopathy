@@ -4,6 +4,7 @@ from werkzeug.utils import secure_filename
 import os
 import uuid
 
+from vadr_backend.decorators import require_auth
 from vadr_backend.services.ai.predictor import predict_retinopathy
 
 predict_bp = Blueprint("predict", __name__)
@@ -20,6 +21,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
 @predict_bp.route("/predict", methods=["POST"])
+@require_auth(roles=["admin", "doctor", "screener"])
 def predict():
 
     if "image" not in request.files:
@@ -50,6 +52,7 @@ def predict():
 
 
 @predict_bp.route("/gradcam-image", methods=["GET"])
+@require_auth(roles=["admin", "doctor", "screener"])
 def serve_gradcam():
     """Serve a GradCAM PNG by its relative file path.
 
