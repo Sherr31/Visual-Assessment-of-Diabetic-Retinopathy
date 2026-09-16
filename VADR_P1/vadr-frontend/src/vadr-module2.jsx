@@ -385,9 +385,6 @@ export default function App() {
         ))}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
           <ThemeToggle iconOnly />
-          {(sessionUser?.role === "doctor" || sessionUser?.role === "admin") && (
-            <Link to="/doctor" className="vadr-link-btn">DR Dashboard</Link>
-          )}
           <button
             type="button"
             onClick={handleLogout}

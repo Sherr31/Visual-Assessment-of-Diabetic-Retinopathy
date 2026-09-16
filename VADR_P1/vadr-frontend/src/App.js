@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
-import DrDashboard from "./DrDashboard";
 import LoginPage from "./modules/p1-mid/auth/pages/LoginPage";
 import RegisterPage from "./modules/p1-mid/auth/pages/RegisterPage";
 import ForgotPasswordPage from "./modules/p1-mid/auth/pages/ForgotPasswordPage";
@@ -49,14 +48,6 @@ function App() {
             <RequireAuth>
               <PatientRecordsPage />
             </RequireAuth>
-          }
-        />
-        <Route
-          path="/doctor"
-          element={
-            <RequireStaff>
-              <DrDashboard />
-            </RequireStaff>
           }
         />
         <Route
