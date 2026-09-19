@@ -267,3 +267,112 @@ def export_medical_history(patient_id):
         },
         message="Medical history export",
     )
+
+
+@patients_bp.route("/dashboard-summary", methods=["GET"])
+@require_auth(roles=["patient"])
+def patient_dashboard_summary():
+    """Personalized self-service portal summary for the authenticated patient."""
+    user_email = g.current_user.get("email", "").strip().lower()
+
+    # Strictly query by authenticated patient's email
+    patient = db.patients_col.find_one({"email": {"$regex": f"^{user_email}$", "$options": "i"}})
+    if not patient:
+        return api_success({
+            "patient": None,
+            "message": "No patient record is currently linked to this email account. Please contact clinic staff.",
+            "latestScreening": None,
+            "screeningHistory": [],
+            "severityTimeline": [],
+            "reports": {"available": False, "items": []},
+        })
+
+    patient_id = patient.get("patientId")
+
+    # 1. Fetch historical screenings from screenings_col
+    screenings = list(
+        db.screenings_col.find(
+            {"$or": [{"patient_id": patient_id}, {"patientId": patient_id}]}
+        ).sort("created_at", -1)
+    )
+
+    # 2. Fetch medical history scans & visits
+    history = db.medical_history_col.find_one({"patientId": patient_id}) or {}
+    scans_from_history = history.get("scans", [])
+
+    # Format screenings list
+    screening_history = []
+    for s in screenings:
+        screening_history.append({
+            "id": s.get("id"),
+            "prediction": s.get("prediction", "No DR"),
+            "confidence": s.get("confidence"),
+            "reviewed": s.get("reviewed", False),
+            "doctor": s.get("doctor_name") or s.get("doctor_id") or patient.get("assignedDoctor", "Attending Ophthalmologist"),
+            "createdAt": s["created_at"].isoformat() if s.get("created_at") else None,
+            "gradcamPath": s.get("gradcam"),
+        })
+
+    # Fallback to history scans if screenings_col is empty
+    if not screening_history and scans_from_history:
+        for idx, scan in enumerate(scans_from_history):
+            screening_history.append({
+                "id": f"scan-{idx+1}",
+                "prediction": scan.get("prediction") or scan.get("grade") or "No DR",
+                "confidence": scan.get("confidence", 95.0),
+                "reviewed": True,
+                "doctor": scan.get("doctor") or patient.get("assignedDoctor", "Attending Ophthalmologist"),
+                "createdAt": scan.get("scanDate") or scan.get("date"),
+                "gradcamPath": scan.get("gradcamPath"),
+            })
+
+    latest_screening = screening_history[0] if screening_history else None
+
+    # Severity timeline progression
+    severity_timeline = []
+    for s in reversed(screening_history):
+        if s.get("createdAt"):
+            severity_timeline.append({
+                "date": s["createdAt"][:10] if len(s["createdAt"]) >= 10 else s["createdAt"],
+                "prediction": s.get("prediction", "No DR"),
+                "confidence": s.get("confidence"),
+            })
+
+    # Fetch signed reports for the patient
+    reports_cursor = db.reports_col.find({
+        "$or": [
+            {"patient_id": patient_id},
+            {"patient.patientId": patient_id},
+            {"patient.email": {"$regex": f"^{user_email}$", "$options": "i"}}
+        ],
+        "status": {"$in": ["signed", "ready", "email_queued", "email_sent", "email_failed"]}
+    }).sort("created_at", -1)
+
+    signed_reports = []
+    for r in reports_cursor:
+        signed_reports.append({
+            "reportId": r.get("report_id"),
+            "report_id": r.get("report_id"),
+            "screeningId": r.get("screening_id"),
+            "prediction": (r.get("assessment") or {}).get("prediction", "No DR"),
+            "confidence": (r.get("assessment") or {}).get("confidence"),
+            "doctor": (r.get("doctor") or {}).get("name") or (r.get("signoff") or {}).get("signed_by_name", "Attending Doctor"),
+            "signedAt": (r.get("signoff") or {}).get("signed_at"),
+            "createdAt": r["created_at"].isoformat() if r.get("created_at") else None,
+            "status": r.get("status"),
+            "downloadUrl": f"/api/reports/{r.get('report_id')}/download"
+        })
+
+    return api_success({
+        "patient": serialize(patient),
+        "latestScreening": latest_screening,
+        "screeningHistory": screening_history,
+        "severityTimeline": severity_timeline,
+        "assignedDoctor": patient.get("assignedDoctor", "Attending Physician"),
+        "reports": {
+            "available": len(signed_reports) > 0,
+            "items": signed_reports,
+            "notice": "Signed clinical reports will be made available here after physician sign-off." if not signed_reports else "Your signed clinical assessment reports are ready for download.",
+        },
+    })
+

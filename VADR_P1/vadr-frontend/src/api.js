@@ -151,6 +151,7 @@ export const authAPI = {
 export const patientAPI = {
   getAll: () => request("GET", "/patients/"),
   getOne: (patientId) => request("GET", `/patients/${patientId}`),
+  getDashboard: () => request("GET", "/patients/dashboard-summary"),
   register: (data) => request("POST", "/patients/", data),
   update: (patientId, data) => request("PUT", `/patients/${patientId}`, data),
   toggleStatus: (patientId) => request("PATCH", `/patients/${patientId}/status`),
@@ -179,6 +180,7 @@ export const userAPI = {
 // ─── Admin ───────────────────────────────────────────────────────────────────
 
 export const adminAPI = {
+  getSummary: () => request("GET", "/admin/summary"),
   pendingDoctors: () => request("GET", "/admin/pending-doctors"),
   approveDoctor: (userId) => request("PATCH", `/admin/users/${userId}/approve`, {}),
   rejectDoctor: (userId, reason = "") =>
@@ -205,11 +207,13 @@ export const predictAPI = {
   /**
    * Upload a fundus image file and get the DR prediction result.
    * @param {File} imageFile  - The fundus image file to analyse.
-   * @returns {Promise<{class_id, prediction, confidence, probabilities, gradcam}>}
+   * @param {string} [patientId] - Optional patient ID to link with this screening.
+   * @returns {Promise<{class_id, prediction, confidence, probabilities, gradcam, screeningId}>}
    */
-  analyze: async (imageFile) => {
+  analyze: async (imageFile, patientId) => {
     const form = new FormData();
     form.append("image", imageFile);
+    if (patientId) form.append("patientId", patientId);
 
     const headers = {};
     const tok = getToken();
@@ -233,5 +237,62 @@ export const predictAPI = {
     }
 
     return json;
+  },
+};
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
+export const dashboardAPI = {
+  getSummary: () => request("GET", "/dashboard/summary"),
+  markReviewed: (screeningId) => request("PATCH", `/dashboard/screenings/${screeningId}/review`),
+};
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+export const reportAPI = {
+  generateReport: (screeningId) =>
+    request("POST", "/reports/generate", { screening_id: screeningId }),
+
+  getReport: (reportId) =>
+    request("GET", `/reports/${reportId}`),
+
+  getReports: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request("GET", `/reports${q ? `?${q}` : ""}`);
+  },
+
+  signReport: (reportId, clinicalNotes) =>
+    request("POST", `/reports/${reportId}/sign`, { clinical_notes: clinicalNotes }),
+
+  sendEmail: (reportId) =>
+    request("POST", `/reports/${reportId}/send-email`, {}),
+
+  downloadPdf: async (reportId) => {
+    const tok = getToken();
+    const headers = {};
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+
+    const res = await fetch(`${BASE_URL}/reports/${reportId}/download`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!res.ok) {
+      const json = await parseJson(res);
+      throw new ApiError(json.error || json.message || "Failed to download PDF", {
+        status: res.status,
+        code: json.code,
+      });
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `VADR_Report_${reportId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
   },
 };

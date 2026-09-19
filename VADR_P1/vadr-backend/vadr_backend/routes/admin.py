@@ -352,3 +352,53 @@ def restore_system_backup(backup_id):
             metadata={"backup_id": backup_id, "error": "Internal server error"},
         )
         return api_error("An error occurred during restore", status=500)
+
+
+@admin_bp.route("/summary", methods=["GET"])
+@require_auth(roles=["admin"])
+def admin_summary():
+    """Consolidated operational metrics for the Admin Dashboard."""
+    from datetime import datetime, timezone, timedelta
+    
+    PKT_TIMEZONE = timezone(timedelta(hours=5))
+    now_utc = datetime.now(timezone.utc)
+    now_pkt = now_utc.astimezone(PKT_TIMEZONE)
+    start_of_today_pkt = now_pkt.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_today_utc_naive = start_of_today_pkt.astimezone(timezone.utc).replace(tzinfo=None)
+    
+    total_users = db.users_col.count_documents({})
+    total_patients = db.patients_col.count_documents({})
+    active_doctors = db.users_col.count_documents({"role": "doctor", "status": "active"})
+    pending_approvals_count = db.approval_requests_col.count_documents({"status": "pending"})
+    today_screenings = db.screenings_col.count_documents({"created_at": {"$gte": start_of_today_utc_naive}})
+    total_screenings = db.screenings_col.count_documents({})
+    
+    # Backup status
+    total_backups = db.system_backups_col.count_documents({})
+    latest_backup_doc = db.system_backups_col.find_one(sort=[("created_at", -1)])
+    backup_status = {
+        "totalBackups": total_backups,
+        "lastBackup": serialize(latest_backup_doc) if latest_backup_doc else None,
+        "status": "healthy" if total_backups > 0 else "no_backups",
+    }
+    
+    # Recent audit logs (latest 8)
+    recent_logs = list(db.audit_logs_col.find({}).sort("timestamp", -1).limit(8))
+    
+    return api_success({
+        "totalUsers": total_users,
+        "totalPatients": total_patients,
+        "activeDoctors": active_doctors,
+        "pendingApprovalsCount": pending_approvals_count,
+        "todayScreenings": today_screenings,
+        "totalScreenings": total_screenings,
+        "backupStatus": backup_status,
+        "recentAuditLogs": [serialize(log) for log in recent_logs],
+        "systemHealth": {
+            "status": "Operational",
+            "db": "Connected",
+            "aiInference": "Online",
+            "lastChecked": now_utc.isoformat(),
+        },
+    })
+

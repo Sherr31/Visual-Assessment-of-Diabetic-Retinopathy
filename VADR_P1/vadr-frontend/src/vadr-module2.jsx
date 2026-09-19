@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "./vadr-dashboard.css";
-import ThemeToggle from "./components/ThemeToggle";
+import RoleSidebar from "./components/layout/RoleSidebar";
 import {
   adminAPI,
   authAPI,
@@ -284,14 +284,16 @@ const SectionLabel = ({ children }) => (
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════════
-export default function App() {
+export default function App({ defaultTab = "patients", initialTab }) {
   const navigate = useNavigate();
-  const [tab, setTab]         = useState("patients");
+  const [tab, setTab]         = useState(defaultTab || initialTab || "patients");
   const [toast, setToast]     = useState(null);
   const [backendOk, setBackendOk] = useState(null);
   const [sessionUser, setSessionUser] = useState(() => getStoredUser());
-  const [profileOpen, setProfileOpen] = useState(false);
-  const profileRef = useRef(null);
+
+  useEffect(() => {
+    if (defaultTab) setTab(defaultTab);
+  }, [defaultTab]);
 
   useEffect(() => {
     checkHealth()
@@ -299,30 +301,10 @@ export default function App() {
       .catch(() => setBackendOk(false));
   }, []);
 
-  useEffect(() => {
-    if (!profileOpen) return undefined;
-    const close = (e) => {
-      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [profileOpen]);
-
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   }, []);
-
-  const refreshProfile = useCallback(async () => {
-    try {
-      const user = await authAPI.me();
-      setSession({ user });
-      setSessionUser(user);
-      showToast("Profile updated");
-    } catch (err) {
-      showToast(err.message || "Could not load profile", "error");
-    }
-  }, [showToast]);
 
   const role = sessionUser?.role;
   const allTabs = [
@@ -339,14 +321,8 @@ export default function App() {
     if (tabs.length && !tabs.find((t) => t.id === tab)) setTab(tabs[0].id);
   }, [tab, tabs]);
 
-  const handleLogout = async () => {
-    await authAPI.logout();
-    setSessionUser(null);
-    navigate("/login", { replace: true });
-  };
-
   return (
-    <div className="vadr-app">
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--vadr-bg)" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
@@ -356,89 +332,59 @@ export default function App() {
         button:hover:not(:disabled) { opacity: 0.92; }
       `}</style>
 
-      {backendOk === false && (
-        <div className="vadr-status-bar vadr-status-bar--err">
-          <Icon d={I.warning} size={14} color="#dc2626" />
-          Backend not reachable — make sure Flask is running on port 5000 (python app.py)
-        </div>
-      )}
-      {backendOk === true && (
-        <div className="vadr-status-bar vadr-status-bar--ok">
-          <span className="vadr-status-dot" />
-          Connected to VADR Backend — MongoDB live
-        </div>
-      )}
+      {/* Role-based sidebar — consistent with the four role dashboards */}
+      <RoleSidebar activeTab={tab} />
 
-      <header className="vadr-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginRight: 32 }}>
-          <div className="vadr-brand-mark">
-            <Icon d={I.eye} size={18} color="#fff" />
+      {/* Main content area */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflowY: "auto" }}>
+
+        {/* Backend status bar */}
+        {backendOk === false && (
+          <div className="vadr-status-bar vadr-status-bar--err">
+            <Icon d={I.warning} size={14} color="#dc2626" />
+            Backend not reachable — make sure Flask is running on port 5000 (python app.py)
           </div>
-          <div className="vadr-brand-title">VADR</div>
-          <span className="vadr-brand-sub">{PORTAL_SUBTITLES[role] || "Staff Portal"}</span>
-        </div>
-        {tabs.map(t => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={`vadr-tab${tab === t.id ? " vadr-tab--active" : ""}`}>
-            <Icon d={I[t.icon]} size={15} color={tab === t.id ? "#1a56db" : "#94a3b8"} />{t.label}
-          </button>
-        ))}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-          <ThemeToggle iconOnly />
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="vadr-theme-toggle"
-            style={{ fontFamily: "inherit" }}
-          >
-            Log out
-          </button>
-          <div style={{ position: "relative" }} ref={profileRef}>
-            <button
-              type="button"
-              onClick={() => setProfileOpen((v) => !v)}
-              className={`vadr-profile-btn${profileOpen ? " vadr-profile-btn--open" : ""}`}
-            >
-              <Avatar name={sessionUser?.name || "User"} size={34} color="#1a56db" />
-              <div style={{ fontSize: 12, textAlign: "left" }}>
-                <div style={{ fontWeight: 700 }}>{sessionUser?.name || "Staff"}</div>
-                <div style={{ color: "var(--vadr-text-faint)", fontSize: 11 }}>
-                  {(sessionUser?.role && ROLE_PERMISSIONS[sessionUser.role]?.label) || sessionUser?.role || "—"}
-                </div>
-              </div>
-            </button>
-            {profileOpen && (
-              <div className="vadr-profile-menu">
-                <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>{sessionUser?.name}</div>
-                <div style={{ fontSize: 12, color: "var(--vadr-text-muted)", marginBottom: 12 }}>{sessionUser?.email}</div>
-                <div style={{ display: "grid", gap: 8, fontSize: 12 }}>
-                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Role:</span> {ROLE_PERMISSIONS[sessionUser?.role]?.label || sessionUser?.role}</div>
-                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Status:</span> {sessionUser?.status || "—"}</div>
-                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Department:</span> {sessionUser?.department || "—"}</div>
-                  <div><span style={{ color: "var(--vadr-text-faint)" }}>Last login:</span> {sessionUser?.lastLogin || "—"}</div>
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                  <Btn size="sm" variant="secondary" onClick={refreshProfile}>Refresh</Btn>
-                  <Btn size="sm" onClick={() => setProfileOpen(false)}>Close</Btn>
-                </div>
-              </div>
-            )}
+        )}
+        {backendOk === true && (
+          <div className="vadr-status-bar vadr-status-bar--ok">
+            <span className="vadr-status-dot" />
+            Connected to VADR Backend — MongoDB live
           </div>
-        </div>
-      </header>
+        )}
 
-      <main className="vadr-main">
-        <div key={tab} className="vadr-panel">
-          {tab === "patients"   && <PatientsTab  showToast={showToast} sessionUser={sessionUser} />}
-          {tab === "users"      && <UsersTab      showToast={showToast} />}
-          {tab === "approvals"  && <ApprovalsTab  showToast={showToast} />}
-          {tab === "rbac"       && <RBACTab       showToast={showToast} />}
-          {tab === "audit-logs" && <AuditLogsTab  showToast={showToast} />}
-          {tab === "backups"    && <BackupsTab    showToast={showToast} />}
-        </div>
-      </main>
+        {/* Section tab sub-nav — kept as inner nav so tab switching still works */}
+        {tabs.length > 1 && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "10px 24px",
+            borderBottom: "1px solid var(--vadr-border)",
+            background: "var(--vadr-surface)",
+            flexShrink: 0,
+          }}>
+            {tabs.map(t => (
+              <button key={t.id} type="button" onClick={() => setTab(t.id)}
+                className={`vadr-tab${tab === t.id ? " vadr-tab--active" : ""}`}>
+                <Icon d={I[t.icon]} size={15} color={tab === t.id ? "#1a56db" : "#94a3b8"} />{t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
+        <main style={{ flex: 1, padding: 0, overflowY: "auto" }}>
+          <div key={tab} className="vadr-panel">
+            {tab === "patients"   && <PatientsTab  showToast={showToast} sessionUser={sessionUser} />}
+            {tab === "users"      && <UsersTab      showToast={showToast} />}
+            {tab === "approvals"  && <ApprovalsTab  showToast={showToast} />}
+            {tab === "rbac"       && <RBACTab       showToast={showToast} />}
+            {tab === "audit-logs" && <AuditLogsTab  showToast={showToast} />}
+            {tab === "backups"    && <BackupsTab    showToast={showToast} />}
+          </div>
+        </main>
+
+        {toast && <Toast msg={toast.msg} type={toast.type} />}
+      </div>
     </div>
   );
 }

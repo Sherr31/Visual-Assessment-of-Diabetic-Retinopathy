@@ -4,3 +4,8 @@ venv/
 __pycache__/
 *.pyc
 backups/
+uploads/reports/
+uploads/*.jpg
+uploads/*.jpeg
+uploads/*.png
+uploads/gradcam/

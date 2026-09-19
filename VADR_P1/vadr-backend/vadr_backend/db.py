@@ -15,6 +15,8 @@ audit_logs_col: Collection[dict[str, Any]] = None  # type: ignore
 approval_requests_col: Collection[dict[str, Any]] = None  # type: ignore
 rbac_settings_col: Collection[dict[str, Any]] = None  # type: ignore
 system_backups_col: Collection[dict[str, Any]] = None  # type: ignore
+screenings_col: Collection[dict[str, Any]] = None  # type: ignore
+reports_col: Collection[dict[str, Any]] = None  # type: ignore
 
 
 def init_db(mongo_uri: str) -> None:
@@ -22,6 +24,7 @@ def init_db(mongo_uri: str) -> None:
     global patients_col, users_col, pending_reg_col, medical_history_col
     global verification_codes_col, refresh_tokens_col, sessions_col
     global audit_logs_col, approval_requests_col, rbac_settings_col, system_backups_col
+    global screenings_col, reports_col
 
     if mongo_uri.startswith("mongodb+srv://"):
         try:
@@ -47,6 +50,8 @@ def init_db(mongo_uri: str) -> None:
     approval_requests_col = db["approval_requests"]
     rbac_settings_col = db["rbac_settings"]
     system_backups_col = db["system_backups"]
+    screenings_col = db["screenings"]
+    reports_col = db["reports"]
 
     _ensure_indexes()
 
@@ -61,3 +66,12 @@ def _ensure_indexes() -> None:
     verification_codes_col.create_index([("email", ASCENDING), ("type", ASCENDING), ("used", ASCENDING)])
     system_backups_col.create_index([("backup_id", ASCENDING)])
     system_backups_col.create_index([("created_at", ASCENDING)])
+    screenings_col.create_index([("created_at", ASCENDING)])
+    screenings_col.create_index([("patient_id", ASCENDING)])
+    screenings_col.create_index([("reviewed", ASCENDING)])
+    reports_col.create_index([("report_id", ASCENDING)], unique=True)
+    reports_col.create_index([("screening_id", ASCENDING)])
+    reports_col.create_index([("patient_id", ASCENDING)])
+    reports_col.create_index([("doctor_id", ASCENDING)])
+    reports_col.create_index([("status", ASCENDING)])
+    reports_col.create_index([("created_at", ASCENDING)])

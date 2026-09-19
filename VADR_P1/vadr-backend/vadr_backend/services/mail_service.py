@@ -141,3 +141,213 @@ def send_doctor_rejection_email(to_email: str, display_name: str, reason: str, r
         "Thank you,\nVADR Team\n"
     )
     return _send_email(to_email, "Update on your VADR doctor application", body)
+
+
+def _send_email_with_attachment(
+    to_email: str,
+    subject: str,
+    body: str,
+    attachment_path: str,
+    attachment_filename: str,
+) -> tuple[bool, str | None]:
+    """Send an email with a file attachment via SMTP."""
+    cfg = smtp_settings()
+    if not cfg["host"] or not cfg["sender"]:
+        return False, "SMTP is not configured (set MAIL_SERVER and MAIL_DEFAULT_SENDER)."
+    if not cfg["user"]:
+        return False, "SMTP username not set (MAIL_USERNAME)."
+
+    if not os.path.isfile(attachment_path):
+        return False, f"Attachment file not found: {attachment_path}"
+
+    try:
+        with open(attachment_path, "rb") as f:
+            pdf_bytes = f.read()
+    except Exception as exc:
+        return False, f"Failed to read attachment file: {exc}"
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = cfg["sender"]
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    msg.add_attachment(
+        pdf_bytes,
+        maintype="application",
+        subtype="pdf",
+        filename=attachment_filename,
+    )
+
+    ok, err = smtp_send_message(msg, cfg)
+    if not ok:
+        logging.getLogger("vadr.mail").error("SMTP report send failed: %s", err)
+    return ok, err
+
+
+def send_report_email(
+    to_email: str,
+    patient_name: str,
+    pdf_path: str,
+    report_id: str,
+    doctor_name: str | None = None,
+) -> tuple[bool, str | None]:
+    """Format and send the finalized clinical report to the patient's registered email."""
+    subject = f"VADR — Your Diabetic Retinopathy Assessment Report ({report_id})"
+    clinician_str = f" by {doctor_name}" if doctor_name else ""
+    body = (
+        f"Hello {patient_name or 'Valued Patient'},\n\n"
+        f"Your finalized VADR diabetic retinopathy assessment report ({report_id}) has been "
+        f"reviewed and electronically confirmed{clinician_str}.\n\n"
+        "Your official signed clinical report is attached to this email as a PDF document.\n\n"
+        "Please retain this document for your clinical records and consult your attending "
+        "ophthalmologist or healthcare provider to discuss any follow-up evaluations.\n\n"
+        "Regards,\n"
+        "VADR Clinical Screening Team\n"
+        "Visual Assessment of Diabetic Retinopathy\n"
+    )
+    attachment_filename = f"{report_id}.pdf"
+    return _send_email_with_attachment(to_email, subject, body, pdf_path, attachment_filename)
+
+
+# Background thread pool executor for non-blocking asynchronous email delivery
+import concurrent.futures
+_email_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="vadr_mailer")
+
+
+def _bg_worker_report_email(
+    report_id: str,
+    to_email: str,
+    patient_name: str,
+    abs_pdf_path: str,
+    doctor_name: str | None,
+    user_id: str | None,
+    user_role: str | None,
+):
+    """Background worker function executed on thread pool."""
+    from .. import db
+    from ..services.audit_service import log_event
+    from ..utils.common import utcnow_naive
+
+    try:
+        ok, err = send_report_email(to_email, patient_name, abs_pdf_path, report_id, doctor_name)
+        now = utcnow_naive()
+        if ok:
+            db.reports_col.update_one(
+                {"report_id": report_id},
+                {
+                    "$set": {
+                        "email.status": "sent",
+                        "email.sent_at": now,
+                        "email.error": None,
+                        "updated_at": now,
+                    }
+                },
+            )
+            log_event(
+                "REPORT_EMAIL_SENT",
+                user_id=user_id,
+                role=user_role,
+                metadata={
+                    "report_id": report_id,
+                    "recipient_email": to_email,
+                },
+            )
+            logging.getLogger("vadr.mail").info("Successfully emailed report %s to %s", report_id, to_email)
+        else:
+            db.reports_col.update_one(
+                {"report_id": report_id},
+                {
+                    "$set": {
+                        "email.status": "failed",
+                        "email.error": err or "SMTP transmission failed",
+                        "updated_at": now,
+                    }
+                },
+            )
+            log_event(
+                "REPORT_EMAIL_FAILED",
+                user_id=user_id,
+                role=user_role,
+                metadata={
+                    "report_id": report_id,
+                    "recipient_email": to_email,
+                    "error": err,
+                },
+            )
+            logging.getLogger("vadr.mail").warning("Failed emailing report %s: %s", report_id, err)
+    except Exception as exc:
+        now = utcnow_naive()
+        db.reports_col.update_one(
+            {"report_id": report_id},
+            {
+                "$set": {
+                    "email.status": "failed",
+                    "email.error": str(exc),
+                    "updated_at": now,
+                }
+            },
+        )
+        log_event(
+            "REPORT_EMAIL_FAILED",
+            user_id=user_id,
+            role=user_role,
+            metadata={
+                "report_id": report_id,
+                "recipient_email": to_email,
+                "error": str(exc),
+            },
+        )
+        logging.getLogger("vadr.mail").error("Exception in report email worker for %s: %s", report_id, exc)
+
+
+def send_report_email_background(
+    report_id: str,
+    to_email: str,
+    patient_name: str,
+    abs_pdf_path: str,
+    doctor_name: str | None = None,
+    user_id: str | None = None,
+    user_role: str | None = None,
+):
+    """Queue and trigger asynchronous background email dispatch."""
+    from .. import db
+    from ..services.audit_service import log_event
+    from ..utils.common import utcnow_naive
+
+    now = utcnow_naive()
+    # Mark as queued in DB
+    db.reports_col.update_one(
+        {"report_id": report_id},
+        {
+            "$set": {
+                "email.status": "queued",
+                "email.recipient": to_email,
+                "email.queued_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+
+    log_event(
+        "REPORT_EMAIL_QUEUED",
+        user_id=user_id,
+        role=user_role,
+        metadata={
+            "report_id": report_id,
+            "recipient_email": to_email,
+        },
+    )
+
+    # Submit to thread executor
+    _email_executor.submit(
+        _bg_worker_report_email,
+        report_id,
+        to_email,
+        patient_name,
+        abs_pdf_path,
+        doctor_name,
+        user_id,
+        user_role,
+    )
+

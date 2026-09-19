@@ -3,10 +3,11 @@ import {
   Upload, Eye, ZoomIn, ZoomOut, RotateCcw, Sun, Contrast,
   Pencil, Circle, Square, Minus, Trash2, Download,
   Brain, Activity, AlertTriangle, CheckCircle, Info,
-  RefreshCw, Maximize2
+  RefreshCw, Maximize2, FileText
 } from "lucide-react";
 import "./vadr-fundus.css";
-import { BASE_URL, predictAPI } from "../../../api";
+import { BASE_URL, predictAPI, patientAPI, reportAPI } from "../../../api";
+import DoctorSignOffModal from "../../../components/reports/DoctorSignOffModal";
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -49,6 +50,10 @@ function getCanvasPos(canvas, e) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function FundusImageModule() {
+  // Patients list for optional linking
+  const [patients, setPatients]                 = useState([]);
+  const [selectedPatientId, setSelectedPatientId] = useState("");
+
   // Upload
   const [file, setFile]               = useState(null);
   const [previewUrl, setPreviewUrl]   = useState(null);
@@ -79,6 +84,56 @@ export default function FundusImageModule() {
   const [analyzing, setAnalyzing]     = useState(false);
   const [result, setResult]           = useState(null);
   const [error, setError]             = useState(null);
+
+  // Report Modal
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [currentReport, setCurrentReport]     = useState(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
+
+  const handleOpenReportModal = async () => {
+    const sId = result?.screening_id || result?.screeningId;
+    if (!sId) return;
+    setGeneratingReport(true);
+    try {
+      const rpt = await reportAPI.generateReport(sId);
+      setCurrentReport(rpt);
+      setReportModalOpen(true);
+    } catch (err) {
+      alert(err.message || "Failed to generate report");
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
+  // Load patients for dropdown on mount
+  useEffect(() => {
+    let mounted = true;
+    patientAPI
+      .getAll()
+      .then((data) => {
+        if (!mounted) return;
+        const list = Array.isArray(data) ? data : data?.patients || [];
+        setPatients(list);
+      })
+      .catch((err) => {
+        // For patient role, populate their own profile
+        patientAPI
+          .getDashboard()
+          .then((res) => {
+            if (!mounted) return;
+            const p = res?.patient || res?.data?.patient;
+            if (p) {
+              const pid = p.patient_id || p.patientId || p.id;
+              setPatients([{ id: pid, patient_id: pid, name: p.name || "Myself" }]);
+              setSelectedPatientId(pid);
+            }
+          })
+          .catch(() => {});
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // ── File handling ─────────────────────────────────────────────────────────
   const acceptFile = useCallback((f) => {
@@ -175,7 +230,7 @@ export default function FundusImageModule() {
     setError(null);
     setResult(null);
     try {
-      const data = await predictAPI.analyze(file);
+      const data = await predictAPI.analyze(file, selectedPatientId || undefined);
       setResult(data);
       // auto-assign uploaded image to current eye slot
       setEyeSlots(prev => ({ ...prev, [eye]: previewUrl }));
@@ -330,6 +385,40 @@ export default function FundusImageModule() {
                 <span className="fih-quality-score">{quality.score}<small style={{ fontSize: 11 }}>/100</small></span>
               </div>
             )}
+
+            {/* Patient selector */}
+            <div style={{ marginTop: 14, marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6, color: "var(--vadr-text-muted)" }}>
+                Assign to Patient (Optional)
+              </label>
+              <select
+                id="fundus-patient-select"
+                value={selectedPatientId}
+                onChange={(e) => setSelectedPatientId(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  borderRadius: 8,
+                  border: "1px solid var(--vadr-border)",
+                  background: "var(--vadr-surface)",
+                  color: "var(--vadr-text)",
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box"
+                }}
+              >
+                <option value="">No patient selected (test upload)</option>
+                {patients.map((p) => {
+                  const id = p.id || p.patient_id || p.patientId;
+                  const name = p.name || p.fullName || "Unnamed";
+                  return (
+                    <option key={id} value={id}>
+                      {name} ({p.patient_id || p.patientId || id})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
 
             {/* Eye selector */}
             <div className="fih-eye-selector">
@@ -530,6 +619,34 @@ export default function FundusImageModule() {
                     </div>
                   </>
                 )}
+
+                {/* Report Generation & Sign-Off Action */}
+                {(result.screening_id || result.screeningId || result.id) && (
+                  <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--vadr-border)" }}>
+                    <button
+                      type="button"
+                      onClick={handleOpenReportModal}
+                      disabled={generatingReport}
+                      className="vadr-btn vadr-btn-primary"
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                        padding: "9px 16px",
+                        borderRadius: 8,
+                        fontWeight: 700,
+                        fontSize: 13,
+                        backgroundColor: "#2563eb",
+                        color: "#ffffff"
+                      }}
+                    >
+                      <FileText size={16} />
+                      {generatingReport ? "Preparing Report..." : "Generate & Sign Clinical Report"}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -584,6 +701,25 @@ export default function FundusImageModule() {
         </div>
 
       </div>{/* /fih-grid */}
+
+      {/* Doctor Sign-Off Modal */}
+      <DoctorSignOffModal
+        isOpen={reportModalOpen}
+        onClose={() => {
+          setReportModalOpen(false);
+          setCurrentReport(null);
+        }}
+        report={currentReport}
+        screening={{
+          id: result?.screening_id || result?.screeningId,
+          prediction: result?.prediction,
+          confidence: result?.confidence,
+          eyeSide: eye === "L" ? "Left Eye" : "Right Eye"
+        }}
+        onReportUpdated={(updated) => {
+          setCurrentReport(updated);
+        }}
+      />
     </div>
   );
 }

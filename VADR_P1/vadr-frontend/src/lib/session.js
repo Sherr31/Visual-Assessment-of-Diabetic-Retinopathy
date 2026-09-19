@@ -4,10 +4,20 @@ export const STAFF_ROLES = ["admin", "doctor", "screener"];
 
 export function getHomeRoute(user = getStoredUser()) {
   if (!user) return "/login";
-  if (user.role === "patient") return "/my-records";
   if (user.role === "doctor" && user.status === "pending_approval") return "/pending-approval";
-  if (STAFF_ROLES.includes(user.role)) return "/";
-  return "/login";
+  
+  switch (user.role) {
+    case "admin":
+      return "/admin/dashboard";
+    case "doctor":
+      return "/doctor/dashboard";
+    case "screener":
+      return "/screener/dashboard";
+    case "patient":
+      return "/patient/dashboard";
+    default:
+      return "/login";
+  }
 }
 
 export function canAccessStaffPortal(user = getStoredUser()) {
@@ -17,3 +27,16 @@ export function canAccessStaffPortal(user = getStoredUser()) {
 export function isAdmin(user = getStoredUser()) {
   return user?.role === "admin";
 }
+
+export function isDoctor(user = getStoredUser()) {
+  return user?.role === "doctor";
+}
+
+export function isScreener(user = getStoredUser()) {
+  return user?.role === "screener";
+}
+
+export function isPatient(user = getStoredUser()) {
+  return user?.role === "patient";
+}
+
